@@ -21,8 +21,8 @@ class D2D_Session:
         self.to_addr=to_addr
 
 class PMAP_ZSP(BaseZSP):
-    def __init__(self, node, zsp_id):
-        super().__init__(node, zsp_id)
+    def __init__(self, node, zsp_id, blockchain=None, enable_blockchain=True):
+        super().__init__(node, zsp_id, blockchain=blockchain, enable_blockchain=enable_blockchain)
         self.chaotic = ChaoticMap()
         self.D2Z_sessions = {}
         self.D2D_sessions = {}
@@ -83,7 +83,6 @@ class PMAP_ZSP(BaseZSP):
             elif pid not in self.uav_db:
                 print(f"[ZSP] 拒绝: 未知 PID {pid}")
                 return
-            
             uav_data = self.uav_db[pid]
             crp_params = uav_data["crp"] # 对应 UAV 的参数
             self.D2Z_sessions[pid] = D2Z_Session() # 初始化会话状态
@@ -146,16 +145,15 @@ class PMAP_ZSP(BaseZSP):
                 crp_params[1] = float(parts2[4])
                 uav_data["crp"] = crp_params
                 new_pid = hash_256(str(uav_data['uav_id']) + str(crp_params[1]))
-                uav_data["pid"] = new_pid
-                self.uav_db[new_pid] = uav_data
-                del self.uav_db[pid]
-                print(f"[ZSP] UAV 新 PID 更新: {new_pid[:6]}...")
+                self.UpdateUAVPID(pid, new_pid)
+                print(f"[ZSP-{self.zsp_id}] UAV 新 PID 更新: {new_pid[:6]}...")
                 # 生成 Session Key
                 self.D2Z_sessions[new_pid] = self.D2Z_sessions.pop(pid) # 迁移会话状态到新 PID
                 self.D2Z_sessions[new_pid].session_key = int(hash_256(self.D2Z_sessions[new_pid].ni),16)^int(hash_256(self.D2Z_sessions[new_pid].ns),16)
-                print(f"[ZSP] 会话密钥建立: {hex(self.D2Z_sessions[new_pid].session_key)}")
+                print(f"[ZSP-{self.zsp_id}] 会话密钥建立: {hex(self.D2Z_sessions[new_pid].session_key)}")
                 if self.enable_blockchain:
                     self.blockchain.record_auth_event(pid, True)
+                    
         elif msg.get("type") == "D2D_M1_M2":
             print(f"[ZSP-{self.zsp_id}] 收到 D2D 认证请求 M1 和 M2.")
             pid = msg.get("pid")
@@ -251,7 +249,7 @@ class PMAP_ZSP(BaseZSP):
                 new_challenge_seed = self.chaotic.encrypt_by_crp(self.D2D_sessions[pid].n1 + ni, crp_params)
                 self.uav_db[pid]["crp"][0] = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
                 self.uav_db[pid]["crp"][1] = float(new_response)
-                self.uav_db[new_pid] = self.uav_db.pop(pid)
+                self.UpdateUAVPID(pid,new_pid)
                 print(f"[ZSP] UAV 新 PID 更新: {new_pid[:6]}...")
         elif msg.get("type") == "D2D_M9_M10":
             print(f"[ZSP-{self.zsp_id}] 收到 D2D 认证请求 M9 和 M10.")
@@ -302,7 +300,7 @@ class PMAP_ZSP(BaseZSP):
                 self.uav_db[pid]["crp"][0] = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
                 self.uav_db[pid]["crp"][1] = float(new_response)
                 
-                self.uav_db[new_pid] = self.uav_db.pop(pid)
-                print(f"[ZSP] UAV 新 PID 更新: {new_pid[:6]}...")
-                session_key = int(hash_256(nj),16)^int(hash_256(self.D2D_sessions[pid_i].n2),16)
-                print(f"[ZSP] D2D 会话密钥建立: {hex(session_key)}")
+                self.UpdateUAVPID(pid,new_pid)
+                print(f"[ZSP-{self.zsp_id}] UAV 新 PID 更新: {new_pid[:6]}...")
+                session_key = int(hash_256(nj),16)^int(hash_256(self.D2D_sessions[pid_i].ni),16)
+                print(f"[ZSP-{self.zsp_id}] D2D 会话密钥建立: {hex(session_key)}")

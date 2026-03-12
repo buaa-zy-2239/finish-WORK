@@ -1,11 +1,17 @@
 from ns import ns
 import abc
 import cppyy
-import ctypes
+import math
+
 
 class BaseUAV(ns.Application):
+
+    ZSP_REGISTRY = []
+
     def __init__(self, node, uav_id):
+
         super().__init__()
+
         self.node = node
         self.id = uav_id
 
@@ -17,150 +23,279 @@ class BaseUAV(ns.Application):
         self.peer_address = None
         self.peer_port = 9999
 
-        self._install_mobility()
-        # ---- 新增：用于轮询调度的保活引用 ----
+        self.current_zsp = None
+        self.zsp_id = None
+
+        self.comm_range = 300
+
         self._poll_cb_refs = []
         self._poll_wrapper_refs = []
-        self._poll_interval = ns.MilliSeconds(1)
+        self._event_refs = []
+        
 
-        # 专门用来存放延时任务的闭包，防止被 Python GC 回收导致 SegFault
-        self._pending_events = []
+        self._poll_interval = ns.MilliSeconds(100)
+
         self.authenticated = False
+
+        self._install_mobility()
+
+    # =============================
+    # Mobility
+    # =============================
+
+    def _install_mobility(self):
+
+        mobility = self.node.GetObject[ns.MobilityModel]()
+
+        if mobility:
+            return
+
+        helper = ns.MobilityHelper()
+
+        helper.SetMobilityModel(
+            "ns3::ConstantVelocityMobilityModel"
+        )
+
+        container = ns.NodeContainer()
+        container.Add(self.node)
+
+        helper.Install(container)
+
+        mobility = self.node.GetObject[ns.ConstantVelocityMobilityModel]()
+
+        mobility.SetPosition(ns.Vector(self.id * 50, 0, 50))
+
+        mobility.SetVelocity(ns.Vector(10, 0, 0))
+
+    def GetPosition(self):
+
+        mobility = self.node.GetObject[ns.MobilityModel]()
+        pos = mobility.GetPosition()
+
+        return (pos.x, pos.y, pos.z)
+
+    def DistanceTo(self, node):
+
+        m1 = self.node.GetObject[ns.MobilityModel]()
+        m2 = node.GetObject[ns.MobilityModel]()
+
+        return m1.GetDistanceFrom(m2)
 
     # =============================
     # Application 生命周期
     # =============================
 
     def StartApplication(self):
-        # 绑定随机端口
+
         self.m_socket.Bind()
 
-        print(f"[UAV-{self.id}] Application Started (Polling Mode)")
+        print(f"[UAV-{self.id}] Application Started")
+
         self._schedule_poll()
 
+        self._safe_schedule(1, self._mobility_monitor)
+        self.ScanZSP()
+
     def StopApplication(self):
-        # 可选：停止时清理 socket
+
         if self.m_socket:
             self.m_socket.Close()
 
     # =============================
-    # Python 版 RecvCallback（核心）
+    # Mobility Monitor
+    # =============================
+
+    def _mobility_monitor(self):
+
+        x, y, z = self.GetPosition()
+
+        if self.current_zsp:
+
+            dist = self.DistanceTo(self.current_zsp.node)
+
+            if dist > self.comm_range:
+
+                print(f"[UAV-{self.id}] Lost ZSP-{self.current_zsp.zsp_id}")
+
+                self.current_zsp = None
+                self.authenticated = False
+
+                self.ScanZSP()
+
+        else:
+
+            self.ScanZSP()
+
+        self._safe_schedule(1, self._mobility_monitor)
+
+    # =============================
+    # RSSI
+    # =============================
+
+    def GetRSSI(self, node):
+
+        m1 = self.node.GetObject[ns.MobilityModel]()
+        m2 = node.GetObject[ns.MobilityModel]()
+
+        dist = m1.GetDistanceFrom(m2)
+
+        freq = 2.4e9
+        c = 3e8
+        wavelength = c / freq
+
+        if dist == 0:
+            dist = 0.1
+
+        pr = (wavelength / (4 * math.pi * dist)) ** 2
+
+        rssi_dbm = 10 * math.log10(pr) + 20
+
+        return rssi_dbm
+
+    # =============================
+    # ZSP 扫描
+    # =============================
+
+    def ScanZSP(self):
+
+        best = None
+        best_rssi = -999
+
+        for zsp in BaseUAV.ZSP_REGISTRY:
+
+            rssi = self.GetRSSI(zsp.node)
+
+            if rssi > best_rssi:
+                best = zsp
+                best_rssi = rssi
+
+        if best and best != self.current_zsp:
+
+            self.SwitchConnection(best)
+
+    # =============================
+    # 切换连接
+    # =============================
+
+    def SwitchConnection(self, zsp):
+
+        addr = zsp.GetAddress()
+
+        self.current_zsp = zsp
+        self.zsp_id = zsp.zsp_id
+
+        self.peer_address = addr
+
+        self.Connect(addr)
+
+        print(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
+        self.on_connected_to_zsp()
+
+    # =============================
+    # 连接回调
+    # =============================
+
+    def on_connected_to_zsp(self):
+
+        if not self.authenticated:
+
+            print(f"[UAV-{self.id}] Trigger D2Z Authentication")
+
+            if hasattr(self, "Start_D2Z_AuthLater"):
+                self.Start_D2Z_AuthLater(0.5)
+
+    # =============================
+    # Poll Socket
     # =============================
 
     def _schedule_poll(self):
-        """
-        调度一次轮询事件（等价于“注册 RecvCallback”）
-        """
+
         cb = lambda: self._poll_socket()
         wrapper = cppyy.gbl.std.function['void()'](cb)
 
-        # ---- 关键：双重保活 ----
         self._poll_cb_refs.append(cb)
         self._poll_wrapper_refs.append(wrapper)
 
         ns.Simulator.Schedule(self._poll_interval, wrapper)
 
     def _poll_socket(self):
-        """
-        安全的 Polling 实现（不会卡死）
-        """
-        handled_any = False
+
         while self.m_socket.GetRxAvailable() > 0:
-            handled_any = True
-            from_addr=ns.Address()
+
+            from_addr = ns.Address()
+
             packet = self.m_socket.RecvFrom(from_addr)
+
             if not packet or packet.GetSize() == 0:
-                print("packet is none")
                 break
 
             size = packet.GetSize()
+
             buf = bytearray(size)
             packet.CopyData(buf, size)
 
             try:
-                msg = buf.decode("utf-8")
-                self.ProcessReceivedData(msg)
-            except UnicodeDecodeError:
-                print(f"[ZSP-{self.zsp_id}] Decode Error")
 
-        # ⚠️ 关键区别在这里
-        # 只有“本轮没有处理任何数据”才延后轮询
+                msg = buf.decode("utf-8")
+
+                self.ProcessReceivedData(msg)
+
+            except UnicodeDecodeError:
+
+                print(f"[UAV-{self.id}] Decode Error")
+
         self._schedule_poll()
 
     # =============================
-    # 连接与发送
+    # 网络接口
     # =============================
 
     def Connect(self, zsp_address, zsp_port=9999):
+
         inet_addr = ns.InetSocketAddress(zsp_address, zsp_port)
+
         final_addr = inet_addr.ConvertTo()
+
         self.m_socket.Connect(final_addr)
 
-        print(f"[DEBUG] UAV-{self.id} 成功连接至 {zsp_address}:{zsp_port}")
+        print(f"[DEBUG] UAV-{self.id} connected to {zsp_address}:{zsp_port}")
 
     def SendData(self, payload_str):
-        if self.m_socket is None:
-            return
 
-        # 1. 编码数据
         data_bytes = payload_str.encode('utf-8')
-        
-        import cppyy
-        
-        # 手动申请一段 C++ 内存块
+
         size = len(data_bytes)
+
         cpp_buffer = cppyy.gbl.std.vector['uint8_t'](size)
+
         for i in range(size):
             cpp_buffer[i] = data_bytes[i]
 
-        try:
-            packet = ns.Packet(cpp_buffer.data(), size)
-        except:
-            packet = ns.Packet(list(data_bytes)) # 确保 list 里的元素是 int
-        
-        if packet.GetSize() > 0:
-            print(f"[DEBUG] Packet created with size: {packet.GetSize()}")
+        packet = ns.Packet(cpp_buffer.data(), size)
+
         self.m_socket.Send(packet)
 
-        # =============================
-        # 协议逻辑（由子类实现）
-        # =============================
+    # =============================
+    # 抽象方法
+    # =============================
 
     @abc.abstractmethod
     def ProcessReceivedData(self, msg_str):
-        """
-        [抽象方法]
-        处理接收到的字符串数据
-        """
         pass
 
+    # =============================
+    # Safe Scheduler
+    # =============================
+
     def _safe_schedule(self, delay_sec, func, *args):
-        """
-        参考 _schedule_poll 实现的通用安全调度器
-        :param delay_sec: 延迟时间（秒）
-        :param func: 要执行的函数
-        :param args: 函数参数
-        """
-        import cppyy
-        from ns import ns
 
-        # 1. 定义包装函数，模仿 _schedule_poll 的闭包逻辑
         def wrapper():
-            # 执行目标业务逻辑
             func(*args)
-            if wrapper in self._poll_wrapper_refs:
-                self._poll_wrapper_refs.remove(wrapper)
 
-        try:
-            event_cb = cppyy.gbl.std.function['void()'](wrapper)
-            
-            # 3. 将包装器存入父类的保活列表，防止 GC 导致 SegFault
-            self._poll_wrapper_refs.append(wrapper)
-            self._poll_wrapper_refs.append(event_cb) # 双重保活
+        event_cb = cppyy.gbl.std.function['void()'](wrapper)
 
-            # 4. 提交调度到 ns-3 模拟器
-            ns.Simulator.Schedule(ns.Seconds(delay_sec), event_cb)
-            
-        except Exception as e:
-            print(f"[Error] _safe_schedule 调度失败: {e}")
-    
+        # ⭐ 保存引用，防止GC
+        self._event_refs.append(wrapper)
+        self._event_refs.append(event_cb)
+
+        ns.Simulator.Schedule(ns.Seconds(delay_sec), event_cb)

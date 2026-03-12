@@ -1,1 +1,0 @@
-from .ns3_bridge import register_obj, schedule_method

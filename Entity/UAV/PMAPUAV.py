@@ -139,7 +139,8 @@ class PMAP_UAV(BaseUAV):
                     self.pid= hash_256(str(self.id) + str(self.crp[1]))
                     # 3. 生成 Session Key
                     self.session_key = int(hash_256(self.ni),16)^int(hash_256(self.ns),16)
-                    print(f"[UAV] 会话密钥建立: {hex(self.session_key)}")
+                    self.authenticated = True
+                    print(f"[UAV-{self.id}] 会话密钥建立: {hex(self.session_key)}")
                 else:
                     print(f"[UAV-{self.id}] 认证失败: Ni 不匹配")
         elif msg.get("type") == "D2D_M3":
