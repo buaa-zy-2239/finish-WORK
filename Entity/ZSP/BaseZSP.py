@@ -201,13 +201,19 @@ class BaseZSP(ns.Application):
 
                 old_pid = e["old_pid"]
                 new_pid = e["new_pid"]
-
+                if old_pid not in self.uav_db:
+                    continue
+                old_crp = self.uav_db[old_pid]["crp"]
+                
+                challenge = e["challenge"]
+                response = e["response"]
+                print(f"[ZSP-{self.zsp_id}] CRP Event: {old_crp[0]},{old_crp[1]} -> {challenge},{response}")
                 print(
                     f"[ZSP-{self.zsp_id}] PID Event "
                     f"{old_pid[:6]} -> {new_pid[:6]}"
                 )
-
                 self._handle_pid_update(old_pid, new_pid)
+                self.uav_db[new_pid]["crp"] = [challenge,response]
 
         except Exception as e:
 
@@ -229,7 +235,7 @@ class BaseZSP(ns.Application):
             self.uav_db[new_pid] = info
 
         else:
-
+            return
             self.uav_db[new_pid] = {
                 "pid": new_pid
             }
@@ -267,7 +273,7 @@ class BaseZSP(ns.Application):
     # PID 更新
     # ==================================================
 
-    def UpdateUAVPID(self, old_pid, new_pid):
+    def UpdateUAVPID(self, old_pid, new_pid, new_challenge, new_response):
 
         if old_pid in self.uav_db:
 
@@ -286,7 +292,7 @@ class BaseZSP(ns.Application):
 
             try:
 
-                self.blockchain.update_pid(old_pid, new_pid)
+                self.blockchain.update_pid(old_pid, new_pid, new_challenge, new_response)
 
             except Exception as e:
 

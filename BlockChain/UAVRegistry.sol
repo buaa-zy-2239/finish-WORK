@@ -22,8 +22,13 @@ contract UAVRegistry {
 
     event AuthRecord(bytes32 pid, bool result, uint256 time);
 
-    // ⭐ 新增：PID 更新事件
-    event PIDUpdated(bytes32 oldPID, bytes32 newPID);
+    // ⭐ PID 更新事件（包含 CRP 参数）
+    event PIDUpdated(
+        bytes32 oldPID,
+        bytes32 newPID,
+        uint256 challenge,
+        uint256 response
+    );
 
     // =============================
     // Registration
@@ -88,12 +93,14 @@ contract UAVRegistry {
     }
 
     // =============================
-    // ⭐ PID Rotation
+    // ⭐ PID Rotation + CRP Sync
     // =============================
 
     function updatePID(
         bytes32 oldPID,
-        bytes32 newPID
+        bytes32 newPID,
+        uint256 challenge,
+        uint256 response
     ) public {
 
         require(
@@ -118,6 +125,12 @@ contract UAVRegistry {
         // 删除旧 PID
         delete registry[oldPID];
 
-        emit PIDUpdated(oldPID, newPID);
+        // ⭐ 发布 PID + CRP 更新事件
+        emit PIDUpdated(
+            oldPID,
+            newPID,
+            challenge,
+            response
+        );
     }
 }

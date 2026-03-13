@@ -67,21 +67,21 @@ class PMAP_ZSP(BaseZSP):
         try:
             msg = json.loads(msg_str)
         except json.JSONDecodeError as e:
-            print(f"[ZSP Error] JSON Parse Failed: {e}")
-            print(f"[ZSP Debug] Raw Data (first 50 chars): {msg_str[:50]!r}") # 使用 !r 查看是否有隐藏字符
+            print(f"[ZSP-{self.zsp_id} Error] JSON Parse Failed: {e}")
+            print(f"[ZSP-{self.zsp_id} Debug] Raw Data (first 50 chars): {msg_str[:50]!r}") # 使用 !r 查看是否有隐藏字符
             return
         except Exception as e:
-            print(f"[ZSP Error] Unknown Error: {e}")
+            print(f"[ZSP-{self.zsp_id} Error] Unknown Error: {e}")
             return
         # 处理 M1 请求
         if msg.get("type") == "M1":
             pid = msg.get("pid")
             if self.enable_blockchain:
                 if not self.blockchain.is_valid_uav(pid):
-                    print(f"[ZSP] Blockchain 拒绝: 未知 PID {pid}")
+                    print(f"[ZSP-{self.zsp_id}] Blockchain 拒绝: 未知 PID {pid}")
                     return
             elif pid not in self.uav_db:
-                print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                 return
             uav_data = self.uav_db[pid]
             crp_params = uav_data["crp"] # 对应 UAV 的参数
@@ -95,7 +95,7 @@ class PMAP_ZSP(BaseZSP):
             parts = decrypted.split('|')
             if len(parts) >= 3 and self.Verify_MAC(msg["m"], [parts[2]], msg["mac"]):
                 ni = parts[2]
-                print(f"[ZSP] M1 验证通过. UAV={uav_data['uav_id']}, Ni={ni[:6]}...")
+                print(f"[ZSP-{self.zsp_id}] M1 验证通过. UAV={uav_data['uav_id']}, Ni={ni[:6]}...")
                 
                 # 2. 生成 Ns 并构造 M2
                 ns = str(random.random())
@@ -121,10 +121,10 @@ class PMAP_ZSP(BaseZSP):
             pid = msg.get("pid")
             if self.enable_blockchain:
                 if not self.blockchain.is_valid_uav(pid):
-                    print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                    print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                     return
             elif pid not in self.uav_db:
-                print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                 return
             
             uav_data = self.uav_db[pid]
@@ -138,14 +138,14 @@ class PMAP_ZSP(BaseZSP):
             parts1 = messages[0].split('|')
             parts2 = messages[1].split('|')
             if self.Verify_MAC([msg["m3"], msg["m4"]], [parts1[3], parts2[4]], msg["mac"]):
-                print(f"[ZSP] M3/M4 验证通过. UAV={uav_data['uav_id']}, Ni={parts1[3][:6]}...")
+                print(f"[ZSP-{self.zsp_id}] M3/M4 验证通过. UAV={uav_data['uav_id']}, Ni={parts1[3][:6]}...")
                 self.D2Z_sessions[pid].ni = parts1[3]
                 new_challenge_seed = self.chaotic.encrypt_by_crp(self.D2Z_sessions[pid].ni + self.D2Z_sessions[pid].ns, crp_params)
                 crp_params[0] = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
                 crp_params[1] = float(parts2[4])
                 uav_data["crp"] = crp_params
                 new_pid = hash_256(str(uav_data['uav_id']) + str(crp_params[1]))
-                self.UpdateUAVPID(pid, new_pid)
+                self.UpdateUAVPID(pid, new_pid,crp_params[0],crp_params[1])
                 print(f"[ZSP-{self.zsp_id}] UAV 新 PID 更新: {new_pid[:6]}...")
                 # 生成 Session Key
                 self.D2Z_sessions[new_pid] = self.D2Z_sessions.pop(pid) # 迁移会话状态到新 PID
@@ -159,10 +159,10 @@ class PMAP_ZSP(BaseZSP):
             pid = msg.get("pid")
             if self.enable_blockchain:
                 if not self.blockchain.is_valid_uav(pid):
-                    print(f"[ZSP] Blockchain 拒绝: 未知 PID {pid}")
+                    print(f"[ZSP-{self.zsp_id}] Blockchain 拒绝: 未知 PID {pid}")
                     return
             elif pid not in self.uav_db:
-                print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                 return
             
             uav_data = self.uav_db[pid]
@@ -181,7 +181,7 @@ class PMAP_ZSP(BaseZSP):
             ni = parts1[2]
             
             if self.Verify_MAC([msg["m1"], msg["m2"]], [str(ni), str(pid_j)], msg["mac"]):
-                print(f"[ZSP] D2D M1/M2 验证通过. UAV={uav_data['uav_id']}, Ni={parts1[2][:6]}..., Nj={parts2[2][:6]}...")
+                print(f"[ZSP-{self.zsp_id}] D2D M1/M2 验证通过. UAV={uav_data['uav_id']}, Ni={parts1[2][:6]}..., Nj={parts2[2][:6]}...")
                 # 这里可以存储 Nj 以供后续 D2D 认证使用
                 self.D2D_sessions[pid] = D2D_Session(ni=ni,nj=None,n1=str(random.random()),n2=str(random.random()),
                                         from_addr=from_addr,to_addr=self.D2Z_sessions[pid_j].from_addr)
@@ -200,10 +200,10 @@ class PMAP_ZSP(BaseZSP):
             pid = msg.get("pid")
             if self.enable_blockchain:
                 if not self.blockchain.is_valid_uav(pid):
-                    print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                    print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                     return
             elif pid not in self.uav_db:
-                print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                 return
             
             uav_data = self.uav_db[pid]
@@ -223,7 +223,7 @@ class PMAP_ZSP(BaseZSP):
             new_pid = hash_256(str(uav_data['uav_id']) + str(new_response))
             
             if self.Verify_MAC([msg["m4"], msg["m5"]], [ni, new_response], msg["mac"]):
-                print(f"[ZSP] D2D M4/M5 验证通过. UAV={uav_data['uav_id']}, Ni={ni[:6]}..., new_response={new_response[:6]}...")
+                print(f"[ZSP-{self.zsp_id}] D2D M4/M5 验证通过. UAV={uav_data['uav_id']}, Ni={ni[:6]}..., new_response={new_response[:6]}...")
                 # 这里可以存储 N1 以供后续 D2D 认证使用
                 self.D2D_sessions[pid].ni = ni
                 plaintext_m6 =  f"{pid_j}|{self.zsp_id}|{self.D2D_sessions[pid].n2}"
@@ -249,17 +249,17 @@ class PMAP_ZSP(BaseZSP):
                 new_challenge_seed = self.chaotic.encrypt_by_crp(self.D2D_sessions[pid].n1 + ni, crp_params)
                 self.uav_db[pid]["crp"][0] = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
                 self.uav_db[pid]["crp"][1] = float(new_response)
-                self.UpdateUAVPID(pid,new_pid)
+                self.UpdateUAVPID(pid,new_pid,self.uav_db[pid]["crp"][0],self.uav_db[pid]["crp"][1])
                 print(f"[ZSP] UAV 新 PID 更新: {new_pid[:6]}...")
         elif msg.get("type") == "D2D_M9_M10":
             print(f"[ZSP-{self.zsp_id}] 收到 D2D 认证请求 M9 和 M10.")
             pid = msg.get("pid")
             if self.enable_blockchain:
                 if not self.blockchain.is_valid_uav(pid):
-                    print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                    print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                     return
             elif pid not in self.uav_db:
-                print(f"[ZSP] 拒绝: 未知 PID {pid}")
+                print(f"[ZSP-{self.zsp_id}] 拒绝: 未知 PID {pid}")
                 return
             
             uav_data = self.uav_db[pid]
@@ -279,7 +279,7 @@ class PMAP_ZSP(BaseZSP):
             new_response = parts10[5]
             new_pid = hash_256(str(uav_data['uav_id']) + str(new_response))
             if self.Verify_MAC([msg["m9"], msg["m10"]], [n2,nj, new_response], msg["mac"]):
-                print(f"[ZSP] D2D M9/M10 验证通过. UAV={uav_data['uav_id']}, Nj={nj[:6]}..., new_response={new_response[:6]}...")
+                print(f"[ZSP-{self.zsp_id}] D2D M9/M10 验证通过. UAV={uav_data['uav_id']}, Nj={nj[:6]}..., new_response={new_response[:6]}...")
                 # 这里可以存储 N1 以供后续 D2D 认证使用
 
                 plaintext_m11 = f"{pid_i}|{self.zsp_id}|{pid}|{self.D2D_sessions[pid_i].ni}|{nj}"
@@ -300,7 +300,7 @@ class PMAP_ZSP(BaseZSP):
                 self.uav_db[pid]["crp"][0] = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
                 self.uav_db[pid]["crp"][1] = float(new_response)
                 
-                self.UpdateUAVPID(pid,new_pid)
+                self.UpdateUAVPID(pid,new_pid,self.uav_db[pid]["crp"][0],self.uav_db[pid]["crp"][1])
                 print(f"[ZSP-{self.zsp_id}] UAV 新 PID 更新: {new_pid[:6]}...")
                 session_key = int(hash_256(nj),16)^int(hash_256(self.D2D_sessions[pid_i].ni),16)
                 print(f"[ZSP-{self.zsp_id}] D2D 会话密钥建立: {hex(session_key)}")

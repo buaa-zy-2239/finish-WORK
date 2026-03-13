@@ -4,6 +4,7 @@ from Entity.ZSP.PMAPZSP import PMAP_ZSP
 from Entity.UAV.BaseUAV import BaseUAV
 from Caculator.Hash import hash_256
 from BlockChain.Blockchain import Web3BlockchainAdapter
+import copy
 
 BLOCKCHAIN = Web3BlockchainAdapter()
 
@@ -33,7 +34,7 @@ def preregister(uav, zsp_list, real_id):
     }
 
     for zsp in zsp_list:
-        zsp.RegisterUAV(pid0, reg)
+        zsp.RegisterUAV(pid0, copy.deepcopy(reg))
 
     print(f"[PRE-REG] UAV-{real_id} PID {pid0[:8]}")
 

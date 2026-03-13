@@ -123,8 +123,6 @@ class PMAP_UAV(BaseUAV):
                     encrypted_m3 = self.chaotic.encrypt_by_crp(plantext_m3, self.crp).hex()
                     encrypted_m4 = self.chaotic.encrypt_by_crp(plantext_m4, self.crp).hex()
                     mac=hash_256(f"{encrypted_m3}{encrypted_m4}{self.ni}{str(new_response)}")
-                    
-                    # 4. 更新 CRP (模拟自愈/更新)
                     payload = {
                         "type": "M3_M4",
                         "m3": encrypted_m3,
@@ -137,6 +135,7 @@ class PMAP_UAV(BaseUAV):
                     # 更新 CRP
                     self.crp=[new_chllenge, new_response]
                     self.pid= hash_256(str(self.id) + str(self.crp[1]))
+
                     # 3. 生成 Session Key
                     self.session_key = int(hash_256(self.ni),16)^int(hash_256(self.ns),16)
                     self.authenticated = True

@@ -6,21 +6,6 @@ import threading
 
 
 class Web3BlockchainAdapter:
-    """
-    区块链适配器（线程安全版本）
-
-    功能：
-    - 连接本地区块链
-    - 部署或加载合约
-    - UAV 注册
-    - PID 更新
-    - 认证记录
-    - 查询 PID 更新事件
-
-    设计原则：
-    - Adapter 无状态
-    - Event cursor 由 ZSP 维护
-    """
 
     def __init__(self,
                  enable: bool = True,
@@ -144,13 +129,6 @@ class Web3BlockchainAdapter:
         return bytes.fromhex(pid)
 
     def _bytes32_to_pid(self, value):
-        """
-        将链上 bytes32 转换为 PID hex string
-        兼容:
-        - HexBytes
-        - bytes
-        - str
-        """
 
         if isinstance(value, str):
 
@@ -166,6 +144,18 @@ class Web3BlockchainAdapter:
             return value.hex()
 
         return str(value)
+
+    # CRP float -> uint256
+    def _crp_to_uint(self, value: float):
+
+        SCALE = 10**12
+        return int(value * SCALE)
+
+    # uint256 -> float
+    def _uint_to_crp(self, value: int):
+
+        SCALE = 10**12
+        return value / SCALE
 
     # ==================================================
     # UAV 注册
@@ -242,10 +232,14 @@ class Web3BlockchainAdapter:
             print("[Blockchain] record_auth_event failed:", e)
 
     # ==================================================
-    # PID 更新
+    # ⭐ PID 更新 (包含 CRP)
     # ==================================================
 
-    def update_pid(self, old_pid: str, new_pid: str):
+    def update_pid(self,
+                   old_pid: str,
+                   new_pid: str,
+                   challenge: float,
+                   response: float):
 
         if not self.enabled:
             return
@@ -260,11 +254,16 @@ class Web3BlockchainAdapter:
             old_b = self._pid_to_bytes32(old_pid)
             new_b = self._pid_to_bytes32(new_pid)
 
+            challenge_i = self._crp_to_uint(challenge)
+            response_i = self._crp_to_uint(response)
+
             with self.lock:
 
                 self.contract.functions.updatePID(
                     old_b,
-                    new_b
+                    new_b,
+                    challenge_i,
+                    response_i
                 ).transact({
                     "from": self.account
                 })
@@ -274,7 +273,7 @@ class Web3BlockchainAdapter:
             print("[Blockchain] update_pid failed:", e)
 
     # ==================================================
-    # 查询 PID 更新事件（无状态）
+    # ⭐ 查询 PID 更新事件
     # ==================================================
 
     def get_pid_update_events(self, from_block: int, to_block: int):
@@ -296,11 +295,21 @@ class Web3BlockchainAdapter:
             for e in events:
 
                 result.append({
+
                     "old_pid": self._bytes32_to_pid(
                         e["args"]["oldPID"]
                     ),
+
                     "new_pid": self._bytes32_to_pid(
                         e["args"]["newPID"]
+                    ),
+
+                    "challenge": self._uint_to_crp(
+                        e["args"]["challenge"]
+                    ),
+
+                    "response": self._uint_to_crp(
+                        e["args"]["response"]
                     )
                 })
 

@@ -26,14 +26,22 @@ class BaseUAV(ns.Application):
         self.current_zsp = None
         self.zsp_id = None
 
+        # 通信范围
         self.comm_range = 300
 
+        # Handover hysteresis
+        self.handover_margin = 5
+
+        # Scheduler refs (防止 GC)
         self._poll_cb_refs = []
         self._poll_wrapper_refs = []
         self._event_refs = []
-        
 
+        # Poll interval
         self._poll_interval = ns.MilliSeconds(100)
+
+        # Mobility monitor interval
+        self._mobility_interval = 0.3
 
         self.authenticated = False
 
@@ -53,7 +61,7 @@ class BaseUAV(ns.Application):
         helper = ns.MobilityHelper()
 
         helper.SetMobilityModel(
-            "ns3::ConstantVelocityMobilityModel"
+            "ns3::WaypointMobilityModel"
         )
 
         container = ns.NodeContainer()
@@ -61,11 +69,30 @@ class BaseUAV(ns.Application):
 
         helper.Install(container)
 
-        mobility = self.node.GetObject[ns.ConstantVelocityMobilityModel]()
+        mobility = self.node.GetObject[ns.WaypointMobilityModel]()
 
-        mobility.SetPosition(ns.Vector(self.id * 50, 0, 50))
+        start_x = self.id * 50
 
-        mobility.SetVelocity(ns.Vector(10, 0, 0))
+        mobility.AddWaypoint(
+            ns.Waypoint(
+                ns.Seconds(0),
+                ns.Vector(start_x, 0, 50)
+            )
+        )
+
+        mobility.AddWaypoint(
+            ns.Waypoint(
+                ns.Seconds(30),
+                ns.Vector(start_x + 600, 0, 50)
+            )
+        )
+
+        mobility.AddWaypoint(
+            ns.Waypoint(
+                ns.Seconds(60),
+                ns.Vector(start_x + 1200, 200, 50)
+            )
+        )
 
     def GetPosition(self):
 
@@ -93,7 +120,8 @@ class BaseUAV(ns.Application):
 
         self._schedule_poll()
 
-        self._safe_schedule(1, self._mobility_monitor)
+        self._safe_schedule(self._mobility_interval, self._mobility_monitor)
+
         self.ScanZSP()
 
     def StopApplication(self):
@@ -109,27 +137,14 @@ class BaseUAV(ns.Application):
 
         x, y, z = self.GetPosition()
 
-        if self.current_zsp:
+        # print(f"[UAV-{self.id}] pos=({x:.1f},{y:.1f},{z:.1f})")
 
-            dist = self.DistanceTo(self.current_zsp.node)
+        self.ScanZSP()
 
-            if dist > self.comm_range:
-
-                print(f"[UAV-{self.id}] Lost ZSP-{self.current_zsp.zsp_id}")
-
-                self.current_zsp = None
-                self.authenticated = False
-
-                self.ScanZSP()
-
-        else:
-
-            self.ScanZSP()
-
-        self._safe_schedule(1, self._mobility_monitor)
+        self._safe_schedule(self._mobility_interval, self._mobility_monitor)
 
     # =============================
-    # RSSI
+    # RSSI 模型 (Log-distance)
     # =============================
 
     def GetRSSI(self, node):
@@ -139,21 +154,29 @@ class BaseUAV(ns.Application):
 
         dist = m1.GetDistanceFrom(m2)
 
+        if dist < 1:
+            dist = 1
+
+        # 参数
         freq = 2.4e9
         c = 3e8
+
         wavelength = c / freq
 
-        if dist == 0:
-            dist = 0.1
+        # Friis at 1m
+        pr0 = (wavelength / (4 * math.pi)) ** 2
 
-        pr = (wavelength / (4 * math.pi * dist)) ** 2
+        # path loss exponent
+        n = 2.7
+
+        pr = pr0 / (dist ** n)
 
         rssi_dbm = 10 * math.log10(pr) + 20
 
         return rssi_dbm
 
     # =============================
-    # ZSP 扫描
+    # ZSP 扫描 + Handover
     # =============================
 
     def ScanZSP(self):
@@ -166,10 +189,30 @@ class BaseUAV(ns.Application):
             rssi = self.GetRSSI(zsp.node)
 
             if rssi > best_rssi:
+
                 best = zsp
                 best_rssi = rssi
 
-        if best and best != self.current_zsp:
+        if best is None:
+            return
+
+        if self.current_zsp is None:
+
+            self.SwitchConnection(best)
+            return
+
+        if best == self.current_zsp:
+            return
+
+        current_rssi = self.GetRSSI(self.current_zsp.node)
+
+        # Handover 判断
+        if best_rssi - current_rssi > self.handover_margin:
+
+            print(
+                f"[UAV-{self.id}] Handover "
+                f"ZSP-{self.current_zsp.zsp_id} → ZSP-{best.zsp_id}"
+            )
 
             self.SwitchConnection(best)
 
@@ -188,7 +231,10 @@ class BaseUAV(ns.Application):
 
         self.Connect(addr)
 
+        self.authenticated = False
+
         print(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
+
         self.on_connected_to_zsp()
 
     # =============================
@@ -211,6 +257,7 @@ class BaseUAV(ns.Application):
     def _schedule_poll(self):
 
         cb = lambda: self._poll_socket()
+
         wrapper = cppyy.gbl.std.function['void()'](cb)
 
         self._poll_cb_refs.append(cb)
@@ -232,6 +279,7 @@ class BaseUAV(ns.Application):
             size = packet.GetSize()
 
             buf = bytearray(size)
+
             packet.CopyData(buf, size)
 
             try:
@@ -294,7 +342,6 @@ class BaseUAV(ns.Application):
 
         event_cb = cppyy.gbl.std.function['void()'](wrapper)
 
-        # ⭐ 保存引用，防止GC
         self._event_refs.append(wrapper)
         self._event_refs.append(event_cb)
 
