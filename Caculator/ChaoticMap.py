@@ -6,12 +6,11 @@ class ChaoticMap():
         self.b=0.3
         self.x=x_init
     
-    def encrypt_by_crp(self,message:str,crp:list[float])->bytes:
+    def encrypt_by_crp(self,message_bytes:bytes,crp:list[float])->bytes:
         """ 使用混沌映射对消息进行加密 """
         x=crp[0]
         y=crp[1]
 
-        message_bytes=message.encode('utf-8')
         length=len(message_bytes)
 
         shuffled_bytes=bytearray(length)
@@ -46,7 +45,7 @@ class ChaoticMap():
 
         return bytes(shuffled_bytes)
     
-    def decrypt_by_crp(self,encrypted_message:bytes,crp:list[float])->str:
+    def decrypt_by_crp(self,encrypted_message:bytes,crp:list[float])->bytes:
         """ 使用混沌映射对消息进行解密 """
         x=crp[0]
         y=crp[1]
@@ -82,4 +81,4 @@ class ChaoticMap():
             x=new_x
             y=new_y
 
-        return unshuffled_bytes.decode('utf-8')
+        return unshuffled_bytes

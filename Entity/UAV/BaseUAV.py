@@ -82,7 +82,7 @@ class BaseUAV(ns.Application):
 
         mobility.AddWaypoint(
             ns.Waypoint(
-                ns.Seconds(30),
+                ns.Seconds(50),
                 ns.Vector(start_x + 600, 0, 50)
             )
         )
@@ -246,9 +246,7 @@ class BaseUAV(ns.Application):
         if not self.authenticated:
 
             print(f"[UAV-{self.id}] Trigger D2Z Authentication")
-
-            if hasattr(self, "Start_D2Z_AuthLater"):
-                self.Start_D2Z_AuthLater(0.5)
+            self._safe_schedule(0.5, self.D2Z_InitiateAuth)
 
     # =============================
     # Poll Socket
@@ -284,7 +282,7 @@ class BaseUAV(ns.Application):
 
             try:
 
-                msg = buf.decode("utf-8")
+                msg = buf
 
                 self.ProcessReceivedData(msg)
 
@@ -308,16 +306,14 @@ class BaseUAV(ns.Application):
 
         print(f"[DEBUG] UAV-{self.id} connected to {zsp_address}:{zsp_port}")
 
-    def SendData(self, payload_str):
+    def SendData(self, payload_bytes):
 
-        data_bytes = payload_str.encode('utf-8')
-
-        size = len(data_bytes)
+        size = len(payload_bytes)
 
         cpp_buffer = cppyy.gbl.std.vector['uint8_t'](size)
 
         for i in range(size):
-            cpp_buffer[i] = data_bytes[i]
+            cpp_buffer[i] = payload_bytes[i]
 
         packet = ns.Packet(cpp_buffer.data(), size)
 

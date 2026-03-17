@@ -159,7 +159,7 @@ class BaseZSP(ns.Application):
 
             try:
 
-                msg = buf.decode("utf-8")
+                msg = buf
                 self.ProcessRequest(msg, from_addr)
 
             except UnicodeDecodeError:
@@ -304,9 +304,7 @@ class BaseZSP(ns.Application):
     # Send Packet
     # ==================================================
 
-    def SendResponse(self, payload_str, dest_addr):
-
-        data_bytes = payload_str.encode('utf-8')
+    def SendResponse(self, data_bytes, dest_addr):
 
         size = len(data_bytes)
 

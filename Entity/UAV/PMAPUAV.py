@@ -2,238 +2,415 @@ from Entity.UAV.BaseUAV import BaseUAV
 from Caculator.ChaoticMap import ChaoticMap
 from KeyGen.PUFGenerator import PUFGenerator
 from Caculator.Hash import hash_256
-import json
+
+from Protocol.PMAP.PMAPPlaintext import PMAPPlaintext
+from Protocol.PMAP.Packet import PMAPPacket
+from Protocol.PMAP.MsgType import PMAPMessageType
+
 import random
+import struct
+
 
 class D2D_Session:
-    def __init__(self,ni=None,nj=None,ns=None):
-        self.ni=ni
-        self.nj=nj
-        self.ns=ns
 
-class PMAP_UAV(BaseUAV):
-    def __init__(self, node, uav_id):
-        super().__init__(node, uav_id)
-        self.chaotic = ChaoticMap()
-        self.puf = PUFGenerator(uav_id)
-        self.zsp_id = None
-        
-        # 安全上下文
-        self.crp=[None, None] # (C, R)
-        self.new_crp=[None, None] # (C, R)
-        self.pid = None
+    def __init__(self):
         self.ni = None
-        self.ns = None
-        self.D2D_sessions = {}
+        self.nj = None
+        self.n2 = None
         self.session_key = None
 
+
+class PMAP_UAV(BaseUAV):
+
+    def __init__(self, node, uav_id):
+
+        super().__init__(node, uav_id)
+
+        self.chaotic = ChaoticMap()
+        self.puf = PUFGenerator(uav_id)
+
+        self.zsp_id = None
+
+        # CRP
+        self.crp = [None, None]
+        self.new_crp = [None, None]
+
+        self.pid = None
+
+        # D2Z
+        self.ni = None
+        self.ns = None
+
+        self.session_key = None
+
+        # D2D sessions
+        self.D2D_sessions = {}
+
+
+    # =========================================================
+    # Initialization
+    # =========================================================
+
     def StartApplication(self):
-        # 初始化：生成初始 R 和 PID (模拟注册阶段已完成)
+
         self.crp[1] = self.puf.generate_response(self.crp[0])
+
         self.pid = hash_256(str(self.id) + str(self.crp[1]))
-        super().StartApplication()    
+
+        super().StartApplication()
+
+
+    # =========================================================
+    # D2Z Initiate (M1)
+    # =========================================================
 
     def D2Z_InitiateAuth(self):
-        """ [Step 1] 发送认证请求 """
-        self.ni = str(random.random())
+
+        self.ni = random.random()
+        plaintext = PMAPPlaintext.encode(
+            PMAPPlaintext.M1,
+            self.pid,
+            self.zsp_id,
+            self.ni
+        )
         
-        # 1. 构造明文: PID || ZSP_ID || Ni
-        plaintext = f"{self.pid}|{self.zsp_id}|{self.ni}"
+        encrypted = self.chaotic.encrypt_by_crp(
+            plaintext,
+            self.crp
+        )
+        mac_input = encrypted + struct.pack(">d", self.ni)
+        packet = PMAPPacket.build(
+            PMAPMessageType.M1,
+            self.pid,
+            encrypted,
+            mac_input
+        )
         
-        # 2. 加密明文
-        encrypted_bytes = self.chaotic.encrypt_by_crp(plaintext, self.crp)
-        
-        # 3. 计算 MAC
-        mac = hash_256(encrypted_bytes.hex() + self.ni)
-        
-        # 4. 发送报文 (M1)
-        # 为了让 ZSP 能找到 CRP，实际协议中通常需要传输 PID 的索引或明文 PID
-        payload = {
-            "type": "M1",
-            "pid": self.pid, 
-            "m": encrypted_bytes.hex(),
-            "mac": mac
-        }
-        print(f"[UAV-{self.id}] 发送 M1 请求, Ni={self.ni[:6]}...")
-        self.SendData(json.dumps(payload))
-    
-    def D2D_InitiateAuth(self, target_uav_pid):
-        """ UAV i 向 UAV j 发起 D2D 认证  """
+        print(f"[UAV-{self.id}] Send M1")
+
+        self.SendData(packet)
+
+
+    # =========================================================
+    # D2D Initiate (M1 M2)
+    # =========================================================
+
+    def D2D_InitiateAuth(self, target_pid):
+
         session = D2D_Session()
-        session.ni = str(random.random())
-        self.D2D_sessions[target_uav_pid] = session
-        # 构造 M1, M2 明文: PID_i || ZSP_ID || Ni
-        plaintext1 = f"{self.pid}|{self.zsp_id}|{session.ni}"
-        plaintext2 = f"{self.pid}|{self.zsp_id}|{session.ni}|{target_uav_pid}"
-        # 加密 M1,M2 明文
-        encrypted_m1 = self.chaotic.encrypt_by_crp(plaintext1, self.crp).hex()
-        encrypted_m2 = self.chaotic.encrypt_by_crp(plaintext2, self.crp).hex()
-        # 计算 MAC
-        mac = hash_256(encrypted_m1 + encrypted_m2 + session.ni + target_uav_pid)
-        # 发送 M1 和 M2
-        payload = {
-            "type": "D2D_M1_M2",
-            "m1": encrypted_m1,
-            "m2": encrypted_m2,
-            "pid": self.pid,
-            "mac": mac
-        }
-        print(f"[UAV-{self.id}] 发送 D2D 认证请求 M1 和 M2.")
-        self.SendData(json.dumps(payload))
-    
-    def Start_D2Z_AuthLater(self, delay=1.0):
-        """ 外部调用的便捷接口：延时发起 D2Z 认证 """
-        print(f"[Schedule] 计划在 {delay}s 后发起 D2Z 认证...")
-        self._safe_schedule(delay, self.D2Z_InitiateAuth)
 
-    def Verify_MAC(self, msgs , params ,mac_from):
-        """ 验证 MAC """
-        input_str ="".join(msgs) + "".join(params)
-        expected_mac = hash_256(input_str)
-        return expected_mac == mac_from
-    
-    def ProcessReceivedData(self, msg_str):
-        """ 处理 ZSP 返回的消息 """
-        msg = json.loads(msg_str)
-        
-        # [Step 3] 处理 M2
-        if msg.get("type") == "M2":
-            m2_bytes = bytes.fromhex(msg["m"])
+        session.ni = random.random()
+
+        self.D2D_sessions[target_pid] = session
+
+        m1_plain = PMAPPlaintext.encode(
+            PMAPPlaintext.D2D_M1,
+            self.pid,
+            self.zsp_id,
+            session.ni
+        )
+
+        m2_plain = PMAPPlaintext.encode(
+            PMAPPlaintext.D2D_M2,
+            self.pid,
+            self.zsp_id,
+            session.ni,
+            target_pid
+        )
+
+        enc1 = self.chaotic.encrypt_by_crp(m1_plain, self.crp)
+        enc2 = self.chaotic.encrypt_by_crp(m2_plain, self.crp)
+
+        payload = enc1 + enc2
+
+        mac_input = payload + struct.pack(">d", session.ni) + bytes.fromhex(target_pid)
+
+        packet = PMAPPacket.build(
+            PMAPMessageType.D2D_M1_2,
+            self.pid,
+            payload,
+            mac_input
+        )
+
+        print(f"[UAV-{self.id}] Send D2D M1/M2")
+
+        self.SendData(packet)
+
+
+
+    # =========================================================
+    # Receive
+    # =========================================================
+
+    def ProcessReceivedData(self, packet_bytes):
+
+        msg_type, pid, payload, mac = PMAPPacket.parse(packet_bytes)
+        if pid != self.pid:
+            print("[UAV-{self.id}] invalid PID!")
+
+        # -----------------------------------------------------
+        # Receive M2
+        # -----------------------------------------------------
+
+        if msg_type == PMAPMessageType.M2:
+
+            plaintext = self.chaotic.decrypt_by_crp(
+                payload,
+                self.crp
+            )
+
+            pid, zsp, ni, ns = PMAPPlaintext.decode(
+                PMAPPlaintext.M2,
+                plaintext
+            )
+            if ni != self.ni:
+
+                print(f"[UAV-{self.id}] Ni mismatch")
+                return
+
+            print(f"[UAV-{self.id}] ZSP verified")
+
+            self.ns = ns
+
+            self._send_M3_M4()
+
+
+        # -----------------------------------------------------
+        # Receive D2D M3
+        # -----------------------------------------------------
+
+        elif msg_type == PMAPMessageType.D2D_M3:
+
+            plain = self.chaotic.decrypt_by_crp(payload, self.crp)
+
+            pid_i, zsp, pid_j, ni, n1 = PMAPPlaintext.decode(
+                PMAPPlaintext.D2D_M3,
+                plain
+            )
+
+            print(f"[UAV-{self.id}] Receive D2D M3")
+            session = self.D2D_sessions[pid_j]
+            if ni != session.ni:
+                print(f"[UAV-{self.id}] Ni mismatch")
+                return
+
+            print(f"[UAV-{self.id}] D2D: ZSP verified")
+
+            session.n1 = n1
+
+            session.ni = random.random()
+
+            m4_plain = PMAPPlaintext.encode(
+                PMAPPlaintext.D2D_M4,
+                self.pid,
+                self.zsp_id,
+                pid_j,
+                n1,
+                session.ni
+            )
+
+            seed = self.chaotic.encrypt_by_crp(
+                str(session.n1).encode() + str(session.ni).encode(),
+                self.crp
+            )
+
+            challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
+
+            response = self.puf.generate_response(challenge)
+
+            self.new_crp = [challenge, response]
+
+            m5_plain = PMAPPlaintext.encode(
+                PMAPPlaintext.D2D_M5,
+                self.pid,
+                self.zsp_id,
+                pid_j,
+                n1,
+                session.ni,
+                response
+            )
+
+            enc4 = self.chaotic.encrypt_by_crp(m4_plain, self.crp)
+            enc5 = self.chaotic.encrypt_by_crp(m5_plain, self.crp)
+            mac_input = enc4 + enc5 + struct.pack(">d", session.ni) +struct.pack(">d", response)
+            packet = PMAPPacket.build(
+                PMAPMessageType.D2D_M4_5,
+                self.pid,
+                enc4 + enc5,
+                mac_input
+            )
+
+            self.SendData(packet)
+
+            print(f"[UAV-{self.id}] Send D2D M4/M5")
+
+
+        # -----------------------------------------------------
+        # Receive D2D M6 M7 M8
+        # -----------------------------------------------------
+
+        elif msg_type == PMAPMessageType.D2D_M6_7_8:
             
-            # 1. 解密
-            decrypted_str = self.chaotic.decrypt_by_crp(m2_bytes, self.crp)
-            # 明文结构: PID | ZSP | Ni | Ns
-            parts = decrypted_str.split('|')
+            size6 = PMAPPlaintext.D2D_M6.size
+            size7 = PMAPPlaintext.D2D_M7.size
+
+            enc6 = payload[:size6]
+            enc7 = payload[size6:size6 + size7]
+            enc8 = payload[size6 + size7:]
             
-            if len(parts) >= 4:
-                recv_ni = parts[2]
-                self.ns = parts[3]
-                
-                # 2. 验证 Ni 是否一致 (防重放)
-                if recv_ni == self.ni and self.Verify_MAC(msg["m"], [recv_ni,self.ns], msg["mac"]):
-                    print(f"[UAV-{self.id}] 验证 ZSP 成功! 收到 Ns={self.ns[:6]}...")
-                    
-                    # 发送 M3 M4
-                    self.ni= str(random.random())
-                    new_challenge_seed = self.chaotic.encrypt_by_crp(self.ni + self.ns, self.crp)
-                    new_chllenge = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
-                    new_response=self.puf.generate_response(new_chllenge)
-                    plantext_m3 = f"{self.pid}|{self.zsp_id}|{self.ns}|{self.ni}"
-                    plantext_m4 = f"{self.pid}|{self.zsp_id}|{self.ns}|{self.ni}|{new_response}"
-                    encrypted_m3 = self.chaotic.encrypt_by_crp(plantext_m3, self.crp).hex()
-                    encrypted_m4 = self.chaotic.encrypt_by_crp(plantext_m4, self.crp).hex()
-                    mac=hash_256(f"{encrypted_m3}{encrypted_m4}{self.ni}{str(new_response)}")
-                    payload = {
-                        "type": "M3_M4",
-                        "m3": encrypted_m3,
-                        "m4": encrypted_m4,
-                        "pid": self.pid,
-                        "mac": mac
-                    }
-                    print(f"[UAV-{self.id}] 发送 M3 和 M4 确认消息.")
-                    self.SendData(json.dumps(payload))
-                    # 更新 CRP
-                    self.crp=[new_chllenge, new_response]
-                    self.pid= hash_256(str(self.id) + str(self.crp[1]))
-
-                    # 3. 生成 Session Key
-                    self.session_key = int(hash_256(self.ni),16)^int(hash_256(self.ns),16)
-                    self.authenticated = True
-                    print(f"[UAV-{self.id}] 会话密钥建立: {hex(self.session_key)}")
-                else:
-                    print(f"[UAV-{self.id}] 认证失败: Ni 不匹配")
-        elif msg.get("type") == "D2D_M3":
-            print(f"[UAV-{self.id}] 收到 D2D 认证请求 M3.")
-            m3_bytes = bytes.fromhex(msg["m3"])
-            decrypted_str = self.chaotic.decrypt_by_crp(m3_bytes, self.crp)
-            parts = decrypted_str.split('|')
-            if self.Verify_MAC(msg["m3"], [self.D2D_sessions[parts[2]].ni, parts[4]], msg["mac"]):
-                print(f"[UAV-{self.id}] D2D M3 验证通过. Ni={parts[3][:6]}..., N1={parts[4][:6]}...")
-                # 这里可以存储 N1 以供后续 D2D 认证使用
-                ni = str(random.random())
-                self.D2D_sessions[parts[2]].ni = ni
-                # 生成 M4,M5
-                plaintext_m4 = f"{self.pid}|{self.zsp_id}|{parts[2]}|{parts[4]}|{ni}"
-                new_challenge_seed = self.chaotic.encrypt_by_crp(str(ni) + str(parts[4]), self.crp) 
-                new_chllenge = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
-                new_response = self.puf.generate_response(new_chllenge)
-                self.new_crp = [new_chllenge, new_response]
-                plaintext_m5 = f"{self.pid}|{self.zsp_id}|{parts[2]}|{parts[4]}|{ni}|{new_response}"
-                encrypted_m4 = self.chaotic.encrypt_by_crp(plaintext_m4, self.crp).hex()
-                encrypted_m5 = self.chaotic.encrypt_by_crp(plaintext_m5, self.crp).hex()
-                mac = hash_256(f"{encrypted_m4}{encrypted_m5}{ni}{str(new_response)}")
-                resp = {
-                    "type": "D2D_M4_M5",
-                    "m4": encrypted_m4,
-                    "m5": encrypted_m5,
-                    "pid": self.pid,
-                    "mac": mac
-                }
-                self.SendData(json.dumps(resp))
-                print(f"[UAV-{self.id}] 发送 D2D 认证响应 M4 和 M5.")
-        
-        elif msg.get("type") == "D2D_M6_M7_M8":
-            print(f"[UAV-{self.id}] 收到 D2D 认证结果 M6, M7, M8.")
-            m6_bytes = bytes.fromhex(msg["m6"])
-            m7_bytes = bytes.fromhex(msg["m7"])
-            m8_bytes = bytes.fromhex(msg["m8"])
-            newpid_i = msg["pid"]
-            decrypted_m6 = self.chaotic.decrypt_by_crp(m6_bytes, self.crp)
-            decrypted_m7 = self.chaotic.decrypt_by_crp(m7_bytes, self.crp)
-            decrypted_m8 = self.chaotic.decrypt_by_crp(m8_bytes, self.crp)
-            parts_m6 = decrypted_m6.split('|')
-            parts_m7 = decrypted_m7.split('|')
-            parts_m8 = decrypted_m8.split('|')
-            n2 = parts_m6[2]
-            ni = parts_m7[3]
-            pid_i = parts_m8[4]
-            if self.Verify_MAC([msg["m6"],msg["m7"],msg["m8"]], [n2, ni,pid_i], msg["mac"]):
-                print(f"[UAV-{self.id}] D2D 认证成功! N2={parts_m6[2][:6]}..., Ni={parts_m7[3][:6]}...")
-                self.D2D_sessions[pid_i] = D2D_Session()
-                self.D2D_sessions[pid_i].ni = ni
-                self.D2D_sessions[pid_i].nj = str(random.random())
-                new_challenge_seed = self.chaotic.encrypt_by_crp(str(n2) + str(self.D2D_sessions[pid_i].nj), self.crp)
-                new_chllenge = int(hash_256(new_challenge_seed.hex()[:13]),16)/(16**13)
-                new_response = self.puf.generate_response(new_chllenge)
-                self.new_crp = [new_chllenge, new_response]
-                plaintext_m9 = f"{self.pid}|{self.zsp_id}|{pid_i}|{n2}|{self.D2D_sessions[pid_i].nj}"
-                plaintext_m10 = f"{self.pid}|{self.zsp_id}|{pid_i}|{n2}|{self.D2D_sessions[pid_i].nj}|{new_response}"
-                encrypted_m9 = self.chaotic.encrypt_by_crp(plaintext_m9, self.crp).hex()
-                encrypted_m10 = self.chaotic.encrypt_by_crp(plaintext_m10, self.new_crp).hex()
-                mac = hash_256(f"{encrypted_m9}{encrypted_m10}{n2}{self.D2D_sessions[pid_i].nj}{str(new_response)}")
-                resp = {
-                    "type": "D2D_M9_M10",
-                    "m9": encrypted_m9,
-                    "m10": encrypted_m10,
-                    "pid": self.pid,
-                    "mac": mac
-                }
-                self.SendData(json.dumps(resp))
-                # 更新 CRP
-                self.crp = self.new_crp
-                new_pid = hash_256(str(self.id) + str(self.crp[1]))
-                self.pid = new_pid
-                print(f"[UAV-{self.id}] CRP 更新成功! 新 PID={self.pid[:6]}...")
-
-                self.D2D_sessions[pid_i].session_key = int(hash_256(ni),16) ^ int(hash_256(self.D2D_sessions[pid_i].nj),16)
-                self.D2D_sessions[newpid_i] = self.D2D_sessions.pop(pid_i)  # 更新会话索引为新 PID
-                print(f"[UAV-{self.id}] D2D 会话密钥建立: {hex(self.D2D_sessions[newpid_i].session_key)}")
-        elif msg.get("type") == "D2D_M11":
-            print(f"[UAV-{self.id}] 收到 D2D 认证确认通知 M11.")
-            m11_bytes = bytes.fromhex(msg["m11"])
-            decrypted_m11 = self.chaotic.decrypt_by_crp(m11_bytes, self.crp).split('|')
-            ni = decrypted_m11[3]
-            nj = decrypted_m11[4]
-            new_pid_j = msg["pid"]
-            if self.Verify_MAC(msg["m11"], [decrypted_m11[3], decrypted_m11[4]], msg["mac"]):
-                print(f"[UAV-{self.id}] D2D 认证确认! Ni={ni[:6]}..., Nj={nj[:6]}...")
-                self.D2D_sessions[decrypted_m11[2]].nj = nj
-                self.D2D_sessions[decrypted_m11[2]].session_key = int(hash_256(ni),16) ^ int(hash_256(nj),16)
-                self.D2D_sessions[new_pid_j] = self.D2D_sessions.pop(decrypted_m11[2])  # 更新会话索引为新 PID
-                print(f"[UAV-{self.id}] D2D 会话密钥确认: {hex(self.D2D_sessions[new_pid_j].session_key)}")
-                self.crp = self.new_crp
-                self.pid = hash_256(str(self.id) + str(self.crp[1]))
-
-
-           
+            m6 = self.chaotic.decrypt_by_crp(enc6, self.crp)
+            m7 = self.chaotic.decrypt_by_crp(enc7, self.crp)
+            m8 = self.chaotic.decrypt_by_crp(enc8, self.crp)
             
+            _, zsp, n2 = PMAPPlaintext.decode(PMAPPlaintext.D2D_M6, m6)
+            
+            _, _, _, ni = PMAPPlaintext.decode(
+                PMAPPlaintext.D2D_M7,
+                m7
+            )
+            _,_,_,_,pid_i = PMAPPlaintext.decode(
+                PMAPPlaintext.D2D_M8,
+                m8
+            )
+            print(f"n2 is {n2}")
+            session = D2D_Session()
+            session.n2 = n2
+            session.ni = ni
+            session.nj = random.random()
+            self.D2D_sessions[pid_i] = session
+
+            seed = self.chaotic.encrypt_by_crp(
+                str(n2).encode() + str(session.nj).encode(),
+                self.crp
+            )
+
+            challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
+
+            response = self.puf.generate_response(challenge)
+
+            m9_plain = PMAPPlaintext.encode(
+                PMAPPlaintext.D2D_M9,
+                self.pid,
+                self.zsp_id,
+                pid_i,
+                n2,
+                session.nj
+            )
+
+            m10_plain = PMAPPlaintext.encode(
+                PMAPPlaintext.D2D_M10,
+                self.pid,
+                self.zsp_id,
+                pid_i,
+                n2,
+                session.nj,
+                response
+            )
+
+            enc9 = self.chaotic.encrypt_by_crp(m9_plain, self.crp)
+            enc10 = self.chaotic.encrypt_by_crp(m10_plain, self.crp)
+            mac_input = enc9 + enc10 + struct.pack(">d", session.nj) + struct.pack(">d", response)
+            packet = PMAPPacket.build(
+                PMAPMessageType.D2D_M9_10,
+                self.pid,
+                enc9 + enc10,
+                mac_input
+            )
+
+            self.SendData(packet)
+            self.crp = [challenge,response]
+            self.pid = hash_256(str(self.id) + str(response))
+            session.session_key = \
+            int(hash_256(str(session.ni)), 16) ^ \
+            int(hash_256(str(session.nj)), 16)
+
+            print(f"[UAV-{self.id}] D2D session key {hex(session.session_key)}")        
+
+
+        # -----------------------------------------------------
+        # Receive D2D M11
+        # -----------------------------------------------------
+        elif msg_type == PMAPMessageType.D2D_M11:
+
+            plaintext = self.chaotic.decrypt_by_crp(
+                payload,
+                self.crp
+            )
+
+            pid_j, zsp, pid_i, ni, nj = PMAPPlaintext.decode(
+                PMAPPlaintext.D2D_M11,
+                plaintext
+            )
+
+            session = self.D2D_sessions.get(pid_i)
+
+            if session is None:
+                return
+
+            session.nj = nj
+
+            session.session_key = \
+                int(hash_256(str(ni)), 16) ^ \
+                int(hash_256(str(nj)), 16)
+
+            print(
+                f"[UAV-{self.id}] D2D Session confirmed "
+                f"{hex(session.session_key)}"
+            )
+
+            new_pid = hash_256(str(self.id)+str(self.new_crp[1]))
+            self.pid = new_pid
+            self.crp = self.new_crp
+
+
+    # =========================================================
+    # Send M3 M4
+    # =========================================================
+
+    def _send_M3_M4(self):
+
+        self.ni = random.random()
+        seed = self.chaotic.encrypt_by_crp(
+            str(self.ni).encode() + str(self.ns).encode(),
+            self.crp
+        )
+        challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
+        response = self.puf.generate_response(challenge)
+        m3_plain = PMAPPlaintext.encode(
+            PMAPPlaintext.M3,
+            self.pid,
+            self.zsp_id,
+            self.ns,
+            self.ni
+        )
+
+        m4_plain = PMAPPlaintext.encode(
+            PMAPPlaintext.M4,
+            self.pid,
+            self.zsp_id,
+            self.ns,
+            self.ni,
+            response
+        )
+        enc3 = self.chaotic.encrypt_by_crp(m3_plain, self.crp)
+        enc4 = self.chaotic.encrypt_by_crp(m4_plain, self.crp)
+
+        mac_input = enc3 + enc4 + struct.pack(">d", self.ni) + struct.pack(">d", response)
+        packet = PMAPPacket.build(
+            PMAPMessageType.M3_4,
+            self.pid,
+            enc3+enc4,
+            mac_input
+        )
+        self.SendData(packet)
+
+        self.crp = [challenge, response]
+        print(f"[UAV-{self.id}] CRP Update {challenge} {response}")
+
+        self.pid = hash_256(str(self.id) + str(response))
+
+        self.session_key = \
+            int(hash_256(str(self.ni)), 16) ^ \
+            int(hash_256(str(self.ns)), 16)
+
+        print(f"[UAV-{self.id}] D2Z session key {hex(self.session_key)}")

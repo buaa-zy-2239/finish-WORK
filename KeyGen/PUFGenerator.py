@@ -7,7 +7,7 @@ class PUFGenerator(BaseKeyGenerator):
         self.uav_id = uav_id
         self.challenge=None
 
-    def generate_response(self, challenge: float) -> str:
+    def generate_response(self, challenge: float) -> float:
         """ 模拟PUF响应生成逻辑 """
         self.challenge=challenge
         combined = f"{self.uav_id}:{challenge}"
