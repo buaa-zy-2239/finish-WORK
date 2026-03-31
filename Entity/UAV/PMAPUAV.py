@@ -34,8 +34,9 @@ class PMAP_UAV(BaseUAV):
         # CRP
         self.crp = [None, None]
         self.new_crp = [None, None]
-
-        self.pid = None
+        self.crp[0] = 0.1 + uav_id * 0.01
+        self.crp[1] = self.puf.generate_response(self.crp[0])
+        self.pid = hash_256(str(self.id) + str(self.crp[1]))
 
         # D2Z
         self.ni = None
@@ -53,9 +54,7 @@ class PMAP_UAV(BaseUAV):
 
     def StartApplication(self):
 
-        self.crp[1] = self.puf.generate_response(self.crp[0])
-
-        self.pid = hash_256(str(self.id) + str(self.crp[1]))
+        
 
         super().StartApplication()
 
@@ -86,7 +85,7 @@ class PMAP_UAV(BaseUAV):
             mac_input
         )
         
-        print(f"[UAV-{self.id}] Send M1")
+        self.log_info(f"[UAV-{self.id}] Send M1")
 
         self.SendData(packet)
 
@@ -132,7 +131,7 @@ class PMAP_UAV(BaseUAV):
             mac_input
         )
 
-        print(f"[UAV-{self.id}] Send D2D M1/M2")
+        self.log_debug(f"[UAV-{self.id}] Send D2D M1/M2")
 
         self.SendData(packet)
 
@@ -146,7 +145,7 @@ class PMAP_UAV(BaseUAV):
 
         msg_type, pid, payload, mac = PMAPPacket.parse(packet_bytes)
         if pid != self.pid:
-            print("[UAV-{self.id}] invalid PID!")
+            self.log_debug(f"[UAV-{self.id}] invalid PID!")
 
         # -----------------------------------------------------
         # Receive M2
@@ -165,10 +164,10 @@ class PMAP_UAV(BaseUAV):
             )
             if ni != self.ni:
 
-                print(f"[UAV-{self.id}] Ni mismatch")
+                self.log_debug(f"[UAV-{self.id}] Ni mismatch")
                 return
 
-            print(f"[UAV-{self.id}] ZSP verified")
+            self.log_debug(f"[UAV-{self.id}] ZSP verified")
 
             self.ns = ns
 
@@ -188,13 +187,13 @@ class PMAP_UAV(BaseUAV):
                 plain
             )
 
-            print(f"[UAV-{self.id}] Receive D2D M3")
+            self.log_debug(f"[UAV-{self.id}] Receive D2D M3")
             session = self.D2D_sessions[pid_j]
             if ni != session.ni:
-                print(f"[UAV-{self.id}] Ni mismatch")
+                self.log_debug(f"[UAV-{self.id}] Ni mismatch")
                 return
 
-            print(f"[UAV-{self.id}] D2D: ZSP verified")
+            self.log_debug(f"[UAV-{self.id}] D2D: ZSP verified")
 
             session.n1 = n1
 
@@ -242,7 +241,7 @@ class PMAP_UAV(BaseUAV):
 
             self.SendData(packet)
 
-            print(f"[UAV-{self.id}] Send D2D M4/M5")
+            self.log_debug(f"[UAV-{self.id}] Send D2D M4/M5")
 
 
         # -----------------------------------------------------
@@ -272,7 +271,6 @@ class PMAP_UAV(BaseUAV):
                 PMAPPlaintext.D2D_M8,
                 m8
             )
-            print(f"n2 is {n2}")
             session = D2D_Session()
             session.n2 = n2
             session.ni = ni
@@ -324,7 +322,7 @@ class PMAP_UAV(BaseUAV):
             int(hash_256(str(session.ni)), 16) ^ \
             int(hash_256(str(session.nj)), 16)
 
-            print(f"[UAV-{self.id}] D2D session key {hex(session.session_key)}")        
+            self.log_info(f"[UAV-{self.id}] D2D session key {hex(session.session_key)}")        
 
 
         # -----------------------------------------------------
@@ -353,7 +351,7 @@ class PMAP_UAV(BaseUAV):
                 int(hash_256(str(ni)), 16) ^ \
                 int(hash_256(str(nj)), 16)
 
-            print(
+            self.log_info(
                 f"[UAV-{self.id}] D2D Session confirmed "
                 f"{hex(session.session_key)}"
             )
@@ -405,7 +403,7 @@ class PMAP_UAV(BaseUAV):
         self.SendData(packet)
 
         self.crp = [challenge, response]
-        print(f"[UAV-{self.id}] CRP Update {challenge} {response}")
+        self.log_debug(f"[UAV-{self.id}] CRP Update {challenge} {response}")
 
         self.pid = hash_256(str(self.id) + str(response))
 
@@ -413,4 +411,4 @@ class PMAP_UAV(BaseUAV):
             int(hash_256(str(self.ni)), 16) ^ \
             int(hash_256(str(self.ns)), 16)
 
-        print(f"[UAV-{self.id}] D2Z session key {hex(self.session_key)}")
+        self.log_info(f"[UAV-{self.id}] D2Z session key {hex(self.session_key)}")

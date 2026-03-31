@@ -2,7 +2,9 @@ from ns import ns
 import abc
 import cppyy
 import math
-
+import os
+import time
+import json
 
 class BaseUAV(ns.Application):
 
@@ -45,68 +47,83 @@ class BaseUAV(ns.Application):
 
         self.authenticated = False
 
-        self._install_mobility()
+        # 容错机制
+        self.error_count = 0
+        self.max_errors = 50
+        log_dir = "/home/zhang/UAV/logs"
+        os.makedirs(log_dir, exist_ok=True)
+
+        sim_id = int(time.time())
+        self.log_file_path = os.path.join(
+            log_dir, f"sim_{sim_id}_uav_{self.id}.jsonl"
+        )
+
+        # ⭐ 持久打开文件（高性能）
+        self.log_fp = open(self.log_file_path, "w", buffering=1)
+
+    # =========================================================
+    # 日志系统
+    # =========================================================
+
+    def _write_log(self, log_entry):
+        self.log_fp.write(json.dumps(log_entry) + "\n")
+
+    def _add_log(self, level, message, extra=None, log_type="SYSTEM"):
+        log_entry = {
+            "time": time.time(),
+            "uav_id": self.id,
+            "level": level,       # DEBUG / LOG
+            "type": log_type,     # D2Z / D2D / SYSTEM
+            "message": message
+        }
+
+        if extra:
+            log_entry["extra"] = extra
+
+        self._write_log(log_entry)
+
+
+    def log_debug(self, message, extra=None, log_type="SYSTEM"):
+        self._add_log("DEBUG", message, extra, log_type)
+
+    def log_info(self, message, extra=None, log_type="SYSTEM"):
+        self._add_log("LOG", message, extra, log_type)
+
+    # =============================
+    # 容错核心
+    # =============================
+
+    def _safe_execute(self, tag, func, *args):
+        try:
+            return func(*args)
+        except Exception as e:
+            self.error_count += 1
+            self.log_debug(f"[UAV-{self.id}][ERROR][{tag}] {type(e).__name__}: {e}")
+
+            if self.error_count > self.max_errors:
+                self.log_debug(f"[UAV-{self.id}] Too many errors → disabling further execution")
 
     # =============================
     # Mobility
     # =============================
 
-    def _install_mobility(self):
-
-        mobility = self.node.GetObject[ns.MobilityModel]()
-
-        if mobility:
-            return
-
-        helper = ns.MobilityHelper()
-
-        helper.SetMobilityModel(
-            "ns3::WaypointMobilityModel"
-        )
-
-        container = ns.NodeContainer()
-        container.Add(self.node)
-
-        helper.Install(container)
-
-        mobility = self.node.GetObject[ns.WaypointMobilityModel]()
-
-        start_x = self.id * 50
-
-        mobility.AddWaypoint(
-            ns.Waypoint(
-                ns.Seconds(0),
-                ns.Vector(start_x, 0, 50)
-            )
-        )
-
-        mobility.AddWaypoint(
-            ns.Waypoint(
-                ns.Seconds(50),
-                ns.Vector(start_x + 600, 0, 50)
-            )
-        )
-
-        mobility.AddWaypoint(
-            ns.Waypoint(
-                ns.Seconds(60),
-                ns.Vector(start_x + 1200, 200, 50)
-            )
-        )
-
     def GetPosition(self):
-
-        mobility = self.node.GetObject[ns.MobilityModel]()
-        pos = mobility.GetPosition()
-
-        return (pos.x, pos.y, pos.z)
+        try:
+            mobility = self.node.GetObject[ns.MobilityModel]()
+            pos = mobility.GetPosition()
+            return (pos.x, pos.y, pos.z)
+        except Exception as e:
+            self.log_debug(f"[UAV-{self.id}] GetPosition error: {e}")
+            return (0, 0, 0)
 
     def DistanceTo(self, node):
-
-        m1 = self.node.GetObject[ns.MobilityModel]()
-        m2 = node.GetObject[ns.MobilityModel]()
-
-        return m1.GetDistanceFrom(m2)
+        try:
+            m1 = self.node.GetObject[ns.MobilityModel]()
+            m2 = node.GetObject[ns.MobilityModel]()
+            return m1.GetDistanceFrom(m2)
+        except Exception as e:
+            self.log_debug(f"[UAV-{self.id}] Distance error: {e}")
+            return 99999
 
     # =============================
     # Application 生命周期
@@ -114,20 +131,27 @@ class BaseUAV(ns.Application):
 
     def StartApplication(self):
 
-        self.m_socket.Bind()
+        def logic():
 
-        print(f"[UAV-{self.id}] Application Started")
+            self.m_socket.Bind()
 
-        self._schedule_poll()
+            self.log_debug(f"[UAV-{self.id}] Application Started")
 
-        self._safe_schedule(self._mobility_interval, self._mobility_monitor)
+            self._schedule_poll()
 
-        self.ScanZSP()
+            self._safe_schedule(self._mobility_interval, self._mobility_monitor)
+
+            self.ScanZSP()
+
+        self._safe_execute("StartApplication", logic)
 
     def StopApplication(self):
 
-        if self.m_socket:
-            self.m_socket.Close()
+        try:
+            if self.m_socket:
+                self.m_socket.Close()
+        except Exception as e:
+            self.log_debug(f"[UAV-{self.id}] Stop error: {e}")
 
     # =============================
     # Mobility Monitor
@@ -135,86 +159,81 @@ class BaseUAV(ns.Application):
 
     def _mobility_monitor(self):
 
-        x, y, z = self.GetPosition()
+        def logic():
+            self.GetPosition()
+            self.ScanZSP()
 
-        # print(f"[UAV-{self.id}] pos=({x:.1f},{y:.1f},{z:.1f})")
-
-        self.ScanZSP()
+        self._safe_execute("mobility_monitor", logic)
 
         self._safe_schedule(self._mobility_interval, self._mobility_monitor)
 
     # =============================
-    # RSSI 模型 (Log-distance)
+    # RSSI
     # =============================
 
     def GetRSSI(self, node):
 
-        m1 = self.node.GetObject[ns.MobilityModel]()
-        m2 = node.GetObject[ns.MobilityModel]()
+        try:
+            m1 = self.node.GetObject[ns.MobilityModel]()
+            m2 = node.GetObject[ns.MobilityModel]()
 
-        dist = m1.GetDistanceFrom(m2)
+            dist = m1.GetDistanceFrom(m2)
+            if dist < 1:
+                dist = 1
 
-        if dist < 1:
-            dist = 1
+            freq = 2.4e9
+            c = 3e8
+            wavelength = c / freq
 
-        # 参数
-        freq = 2.4e9
-        c = 3e8
+            pr0 = (wavelength / (4 * math.pi)) ** 2
+            n = 2.7
+            pr = pr0 / (dist ** n)
 
-        wavelength = c / freq
+            return 10 * math.log10(pr) + 20
 
-        # Friis at 1m
-        pr0 = (wavelength / (4 * math.pi)) ** 2
-
-        # path loss exponent
-        n = 2.7
-
-        pr = pr0 / (dist ** n)
-
-        rssi_dbm = 10 * math.log10(pr) + 20
-
-        return rssi_dbm
+        except Exception as e:
+            self.log_debug(f"[UAV-{self.id}] RSSI error: {e}")
+            return -999
 
     # =============================
-    # ZSP 扫描 + Handover
+    # ZSP 扫描
     # =============================
 
     def ScanZSP(self):
 
-        best = None
-        best_rssi = -999
+        def logic():
 
-        for zsp in BaseUAV.ZSP_REGISTRY:
+            best = None
+            best_rssi = -999
 
-            rssi = self.GetRSSI(zsp.node)
+            for zsp in BaseUAV.ZSP_REGISTRY:
 
-            if rssi > best_rssi:
+                try:
+                    rssi = self.GetRSSI(zsp.node)
+                except:
+                    continue
 
-                best = zsp
-                best_rssi = rssi
+                if rssi > best_rssi:
+                    best = zsp
+                    best_rssi = rssi
 
-        if best is None:
-            return
+            if best is None:
+                return
 
-        if self.current_zsp is None:
+            if self.current_zsp is None:
+                self.SwitchConnection(best)
+                return
 
-            self.SwitchConnection(best)
-            return
+            if best == self.current_zsp:
+                return
 
-        if best == self.current_zsp:
-            return
+            current_rssi = self.GetRSSI(self.current_zsp.node)
 
-        current_rssi = self.GetRSSI(self.current_zsp.node)
+            if best_rssi - current_rssi > self.handover_margin:
+                self.log_debug(f"[UAV-{self.id}] Handover {self.zsp_id} → {best.zsp_id}")
+                self.SwitchConnection(best)
 
-        # Handover 判断
-        if best_rssi - current_rssi > self.handover_margin:
-
-            print(
-                f"[UAV-{self.id}] Handover "
-                f"ZSP-{self.current_zsp.zsp_id} → ZSP-{best.zsp_id}"
-            )
-
-            self.SwitchConnection(best)
+        self._safe_execute("ScanZSP", logic)
 
     # =============================
     # 切换连接
@@ -222,39 +241,41 @@ class BaseUAV(ns.Application):
 
     def SwitchConnection(self, zsp):
 
-        addr = zsp.GetAddress()
+        def logic():
 
-        self.current_zsp = zsp
-        self.zsp_id = zsp.zsp_id
+            addr = zsp.GetAddress()
 
-        self.peer_address = addr
+            self.current_zsp = zsp
+            self.zsp_id = zsp.zsp_id
+            self.peer_address = addr
 
-        self.Connect(addr)
+            self.Connect(addr)
 
-        self.authenticated = False
+            self.authenticated = False
 
-        print(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
+            self.log_debug(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
 
-        self.on_connected_to_zsp()
+            self.on_connected_to_zsp()
 
-    # =============================
-    # 连接回调
-    # =============================
+        self._safe_execute("SwitchConnection", logic)
 
     def on_connected_to_zsp(self):
 
-        if not self.authenticated:
+        def logic():
+            if not self.authenticated:
+                self.log_debug(f"[UAV-{self.id}] Trigger D2Z Authentication")
+                self._safe_schedule(0.5, self.D2Z_InitiateAuth)
 
-            print(f"[UAV-{self.id}] Trigger D2Z Authentication")
-            self._safe_schedule(0.5, self.D2Z_InitiateAuth)
+        self._safe_execute("on_connected", logic)
 
     # =============================
-    # Poll Socket
+    # Socket Poll
     # =============================
 
     def _schedule_poll(self):
 
-        cb = lambda: self._poll_socket()
+        def cb():
+            self._poll_socket()
 
         wrapper = cppyy.gbl.std.function['void()'](cb)
 
@@ -265,30 +286,36 @@ class BaseUAV(ns.Application):
 
     def _poll_socket(self):
 
-        while self.m_socket.GetRxAvailable() > 0:
+        def logic():
 
-            from_addr = ns.Address()
+            while True:
 
-            packet = self.m_socket.RecvFrom(from_addr)
+                try:
+                    if self.m_socket.GetRxAvailable() <= 0:
+                        break
+                except:
+                    break
 
-            if not packet or packet.GetSize() == 0:
-                break
+                try:
+                    from_addr = ns.Address()
+                    packet = self.m_socket.RecvFrom(from_addr)
+                except:
+                    break
 
-            size = packet.GetSize()
+                if not packet or packet.GetSize() == 0:
+                    break
 
-            buf = bytearray(size)
+                try:
+                    size = packet.GetSize()
+                    buf = bytearray(size)
+                    packet.CopyData(buf, size)
 
-            packet.CopyData(buf, size)
+                    self.ProcessReceivedData(buf)
 
-            try:
+                except Exception as e:
+                    self.log_debug(f"[UAV-{self.id}] Packet error: {e}")
 
-                msg = buf
-
-                self.ProcessReceivedData(msg)
-
-            except UnicodeDecodeError:
-
-                print(f"[UAV-{self.id}] Decode Error")
+        self._safe_execute("poll_socket", logic)
 
         self._schedule_poll()
 
@@ -298,33 +325,40 @@ class BaseUAV(ns.Application):
 
     def Connect(self, zsp_address, zsp_port=9999):
 
-        inet_addr = ns.InetSocketAddress(zsp_address, zsp_port)
+        def logic():
 
-        final_addr = inet_addr.ConvertTo()
+            inet_addr = ns.InetSocketAddress(zsp_address, zsp_port)
+            final_addr = inet_addr.ConvertTo()
 
-        self.m_socket.Connect(final_addr)
+            self.m_socket.Connect(final_addr)
 
-        print(f"[DEBUG] UAV-{self.id} connected to {zsp_address}:{zsp_port}")
+            self.log_debug(f"[DEBUG] UAV-{self.id} connected to {zsp_address}:{zsp_port}")
+
+        self._safe_execute("Connect", logic)
 
     def SendData(self, payload_bytes):
 
-        size = len(payload_bytes)
+        def logic():
 
-        cpp_buffer = cppyy.gbl.std.vector['uint8_t'](size)
+            size = len(payload_bytes)
 
-        for i in range(size):
-            cpp_buffer[i] = payload_bytes[i]
+            cpp_buffer = cppyy.gbl.std.vector['uint8_t'](size)
 
-        packet = ns.Packet(cpp_buffer.data(), size)
+            for i in range(size):
+                cpp_buffer[i] = payload_bytes[i]
 
-        self.m_socket.Send(packet)
+            packet = ns.Packet(cpp_buffer.data(), size)
+
+            self.m_socket.Send(packet)
+
+        self._safe_execute("SendData", logic)
 
     # =============================
     # 抽象方法
     # =============================
 
     @abc.abstractmethod
-    def ProcessReceivedData(self, msg_str):
+    def ProcessReceivedData(self, msg):
         pass
 
     # =============================
@@ -334,7 +368,7 @@ class BaseUAV(ns.Application):
     def _safe_schedule(self, delay_sec, func, *args):
 
         def wrapper():
-            func(*args)
+            self._safe_execute(func.__name__, func, *args)
 
         event_cb = cppyy.gbl.std.function['void()'](wrapper)
 

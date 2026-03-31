@@ -80,7 +80,7 @@ class PMAP_ZSP(BaseZSP):
     def handle_M1(self, pid, payload, mac, from_addr):
 
         if pid not in self.uav_db:
-            print(f"[ZSP-{self.zsp_id}] Unknown PID")
+            self.log_debug(f"[ZSP-{self.zsp_id}] Unknown PID")
             return
 
         crp = self.uav_db[pid]["crp"]
@@ -88,10 +88,10 @@ class PMAP_ZSP(BaseZSP):
         m1 = PMAP.decode(PMAP.M1,decrypted)
         ni = m1[2]
         if not self.verify_mac(payload, [struct.pack(">d", ni)], mac):
-            print(f"[ZSP-{self.zsp_id}] M1 MAC fail")
+            self.log_debug(f"[ZSP-{self.zsp_id}] M1 MAC fail")
             return
 
-        print(f"[ZSP-{self.zsp_id}] M1 verified")
+        self.log_debug(f"[ZSP-{self.zsp_id}] M1 verified")
 
         ns = random.random()
 
@@ -148,9 +148,9 @@ class PMAP_ZSP(BaseZSP):
 
         session.session_key = session_key
 
-        print(f"[ZSP-{self.zsp_id}] Session key established is {hex(session_key)}")
+        self.log_info(f"[ZSP-{self.zsp_id}] Session key established is {hex(session_key)}")
         if not self.verify_mac(payload, [struct.pack(">d", session.ni), struct.pack(">d", response)], mac):
-            print(f"[ZSP-{self.zsp_id}] M3_4 MAC fail")
+            self.log_debug(f"[ZSP-{self.zsp_id}] M3_4 MAC fail")
             return
         seed = self.chaotic.encrypt_by_crp(str(session.ni).encode() + str(session.ns).encode(), crp)
         challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
@@ -165,7 +165,7 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_D2D_M1_2(self, pid, payload, mac, from_addr):
         if pid not in self.uav_db:
-            print("invalid pid")
+            self.log_debug(f"[ZSP-{self.zsp_id}] invalid pid")
             return
 
         m1_size = PMAP.D2D_M1.size
@@ -180,7 +180,7 @@ class PMAP_ZSP(BaseZSP):
         ni = m1[2]
 
         if not self.verify_mac(payload, [struct.pack(">d", ni),struct.pack(">32s", bytes.fromhex(pid_j))], mac):
-            print(f"[ZSP-{self.zsp_id}] M1 MAC fail")
+            self.log_debug(f"[ZSP-{self.zsp_id}] M1 MAC fail")
             return 
         session = D2D_Session()
         session.ni = ni
@@ -237,7 +237,7 @@ class PMAP_ZSP(BaseZSP):
         response = m5[5]
 
         if not self.verify_mac(payload, [struct.pack(">d", ni),struct.pack(">d", response)], mac):
-            print(f"[ZSP-{self.zsp_id}] M4_5 MAC fail")
+            self.log_debug(f"[ZSP-{self.zsp_id}] M4_5 MAC fail")
             return 
         session = self.D2D_sessions[pid+pid_j]
         session.ni = ni
@@ -312,7 +312,7 @@ class PMAP_ZSP(BaseZSP):
         response = m10[5]
 
         if not self.verify_mac(payload, [struct.pack(">d", nj),struct.pack(">d", response)], mac):
-            print(f"[ZSP-{self.zsp_id}] M9_10 MAC fail")
+            self.log_debug(f"[ZSP-{self.zsp_id}] M9_10 MAC fail")
             return 
         session = self.D2D_sessions[pid_i+pid]
         session.nj = nj
@@ -333,7 +333,7 @@ class PMAP_ZSP(BaseZSP):
         session_key = int(hash_256(str(session.ni)), 16) ^ \
             int(hash_256(str(session.nj)), 16)
         session.session_key = session_key
-        print(f"[ZSP-{self.zsp_id}] D2D Session key established is {hex(session_key)}")
+        self.log_info(f"[ZSP-{self.zsp_id}] D2D Session key established is {hex(session_key)}")
 
         packet = PMAPPacket.build(
             PMAPMessageType.D2D_M11,
