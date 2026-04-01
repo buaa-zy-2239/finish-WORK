@@ -4,6 +4,9 @@ import abc
 import os
 import time
 import json
+from Common.logging_framework import (
+    ZSPLogger, DatabaseOperation, AuthenticationPhase, IdentifierOperation
+)
 from Entity.UAV.BaseUAV import BaseUAV
 
 
@@ -48,44 +51,7 @@ class BaseZSP(ns.Application):
         self.error_count = 0
         self.max_errors = 50
 
-        log_dir = "/home/zhang/UAV/logs"
-        os.makedirs(log_dir, exist_ok=True)
-
-        sim_id = int(time.time())
-        self.log_file_path = os.path.join(
-            log_dir, f"sim_{sim_id}_zsp_{zsp_id}.jsonl"
-        )
-
-        # ⭐ 持久打开文件（高性能）
-        self.log_fp = open(self.log_file_path, "w", buffering=1)
-
-    # =========================================================
-    # 日志系统
-    # =========================================================
-
-    def _write_log(self, log_entry):
-        self.log_fp.write(json.dumps(log_entry) + "\n")
-
-    def _add_log(self, level, message, extra=None, log_type="SYSTEM"):
-        log_entry = {
-            "time": time.time(),
-            "zsp_id": self.zsp_id,
-            "level": level,       # DEBUG / LOG
-            "type": log_type,     # D2Z / D2D / SYSTEM
-            "message": message
-        }
-
-        if extra:
-            log_entry["extra"] = extra
-
-        self._write_log(log_entry)
-
-
-    def log_debug(self, message, extra=None, log_type="SYSTEM"):
-        self._add_log("DEBUG", message, extra, log_type)
-
-    def log_info(self, message, extra=None, log_type="SYSTEM"):
-        self._add_log("LOG", message, extra, log_type)
+        self.logger = ZSPLogger(zsp_id)
     # =============================
     # 容错核心
     # =============================
@@ -95,10 +61,13 @@ class BaseZSP(ns.Application):
             return func(*args)
         except Exception as e:
             self.error_count += 1
-            self.log_debug(f"[ZSP-{self.zsp_id}][ERROR][{tag}] {type(e).__name__}: {e}")
+            self.logger.log_error(
+                f"{type(e).__name__}: {e}",
+                error_type=tag
+            )
 
             if self.error_count > self.max_errors:
-                self.log_debug(f"[ZSP-{self.zsp_id}] Too many errors → degraded mode")
+                self.logger.log_error("Too many errors → degraded mode")
 
     # =============================
     # Mobility
@@ -135,7 +104,7 @@ class BaseZSP(ns.Application):
             addr = ipv4.GetAddress(1, 0)
             return addr.GetLocal()
         except Exception as e:
-            self.log_debug(f"[ZSP-{self.zsp_id}] GetAddress error: {e}")
+            self.logger.log_error(f"GetAddress error: {e}", error_type="GetAddress")
             return ns.Ipv4Address("0.0.0.0")
 
     # =============================
@@ -153,7 +122,7 @@ class BaseZSP(ns.Application):
 
             self.m_socket.Bind(local_address.ConvertTo())
 
-            self.log_debug(f"[ZSP-{self.zsp_id}] Service Started")
+            self.logger.log_debug("ZSP service started")
 
             self._schedule_poll()
 
@@ -168,7 +137,7 @@ class BaseZSP(ns.Application):
             if self.m_socket:
                 self.m_socket.Close()
         except Exception as e:
-            self.log_debug(f"[ZSP-{self.zsp_id}] Stop error: {e}")
+            self.logger.log_error(f"Stop error: {e}", error_type="StopApplication")
 
     # =============================
     # Socket Poll
@@ -196,14 +165,14 @@ class BaseZSP(ns.Application):
                     if self.m_socket.GetRxAvailable() <= 0:
                         break
                 except Exception as e:
-                    self.log_debug(f"[ZSP-{self.zsp_id}] Socket state error: {e}")
+                    self.logger.log_error(f"Socket state error: {e}", error_type="socket_state")
                     break
 
                 try:
                     from_addr = ns.Address()
                     packet = self.m_socket.RecvFrom(from_addr)
                 except Exception as e:
-                    self.log_debug(f"[ZSP-{self.zsp_id}] Recv error: {e}")
+                    self.logger.log_error(f"Recv error: {e}", error_type="socket_recv")
                     break
 
                 if not packet or packet.GetSize() == 0:
@@ -217,7 +186,7 @@ class BaseZSP(ns.Application):
                     self.ProcessRequest(buf, from_addr)
 
                 except Exception as e:
-                    self.log_debug(f"[ZSP-{self.zsp_id}] Packet process error: {e}")
+                    self.logger.log_error(f"Packet process error: {e}", error_type="packet_processing")
 
         self._safe_execute("poll_socket", logic)
 
@@ -264,8 +233,10 @@ class BaseZSP(ns.Application):
                 challenge = e["challenge"]
                 response = e["response"]
 
-                self.log_debug(
-                    f"[ZSP-{self.zsp_id}] CRP {old_crp} → {[challenge, response]}"
+                self.logger.log_pid_rotation(
+                    old_pid, new_pid,
+                    old_crp=old_crp,
+                    new_crp=[challenge, response]
                 )
 
                 self._handle_pid_update(old_pid, new_pid)
@@ -273,7 +244,7 @@ class BaseZSP(ns.Application):
                 self.uav_db[new_pid]["crp"] = [challenge, response]
 
             except Exception as e:
-                self.log_debug(f"[ZSP-{self.zsp_id}] Event error: {e}")
+                self.logger.log_error(f"Event processing error: {e}", error_type="blockchain_event")
 
         self._schedule_blockchain_poll()
 
@@ -294,13 +265,13 @@ class BaseZSP(ns.Application):
             else:
                 return
 
-            self.log_debug(
-                f"[ZSP-{self.zsp_id}] PID Sync "
-                f"{old_pid[:8]} → {new_pid[:8]}"
-            )
+            self.logger.log_uav_db_operation(
+                    DatabaseOperation.UPDATED,
+                    uav_pid=new_pid
+                )
 
         except Exception as e:
-            self.log_debug(f"[ZSP-{self.zsp_id}] PID sync error: {e}")
+            self.logger.log_error(f"PID update error: {e}", error_type="pid_update")
 
     # =============================
     # UAV 注册
@@ -314,7 +285,11 @@ class BaseZSP(ns.Application):
                 self.uav_db[pid] = reg_info
                 if not self.blockchain.is_valid_uav(pid):
                     self.blockchain.register_uav(pid)
-            self.log_debug(f"[ZSP-{self.zsp_id}] Register UAV {pid[:8]}")
+            self.logger.log_uav_db_operation(
+                    DatabaseOperation.REGISTERED,
+                    uav_pid=pid,
+                    uav_id=reg_info.get("uav_id")
+                )
         self._safe_execute("RegisterUAV", logic)
 
     # =============================
@@ -332,10 +307,10 @@ class BaseZSP(ns.Application):
 
                 self.uav_db[new_pid] = info
 
-            self.log_debug(
-                f"[ZSP-{self.zsp_id}] PID Update "
-                f"{old_pid[:8]} → {new_pid[:8]}"
-            )
+            self.logger.log_pid_rotation(
+                    old_pid, new_pid,
+                    new_crp=[new_challenge, new_response]
+                )
 
             if self.enable_blockchain and self.blockchain:
                 self.blockchain.update_pid(

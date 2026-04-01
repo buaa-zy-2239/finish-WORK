@@ -5,6 +5,9 @@ import math
 import os
 import time
 import json
+from Common.logging_framework import (
+    UAVLogger, AuthenticationPhase, IdentifierOperation
+)
 
 class BaseUAV(ns.Application):
 
@@ -50,44 +53,7 @@ class BaseUAV(ns.Application):
         # 容错机制
         self.error_count = 0
         self.max_errors = 50
-        log_dir = "/home/zhang/UAV/logs"
-        os.makedirs(log_dir, exist_ok=True)
-
-        sim_id = int(time.time())
-        self.log_file_path = os.path.join(
-            log_dir, f"sim_{sim_id}_uav_{self.id}.jsonl"
-        )
-
-        # ⭐ 持久打开文件（高性能）
-        self.log_fp = open(self.log_file_path, "w", buffering=1)
-
-    # =========================================================
-    # 日志系统
-    # =========================================================
-
-    def _write_log(self, log_entry):
-        self.log_fp.write(json.dumps(log_entry) + "\n")
-
-    def _add_log(self, level, message, extra=None, log_type="SYSTEM"):
-        log_entry = {
-            "time": time.time(),
-            "uav_id": self.id,
-            "level": level,       # DEBUG / LOG
-            "type": log_type,     # D2Z / D2D / SYSTEM
-            "message": message
-        }
-
-        if extra:
-            log_entry["extra"] = extra
-
-        self._write_log(log_entry)
-
-
-    def log_debug(self, message, extra=None, log_type="SYSTEM"):
-        self._add_log("DEBUG", message, extra, log_type)
-
-    def log_info(self, message, extra=None, log_type="SYSTEM"):
-        self._add_log("LOG", message, extra, log_type)
+        self.logger = UAVLogger(uav_id)
 
     # =============================
     # 容错核心
@@ -98,10 +64,13 @@ class BaseUAV(ns.Application):
             return func(*args)
         except Exception as e:
             self.error_count += 1
-            self.log_debug(f"[UAV-{self.id}][ERROR][{tag}] {type(e).__name__}: {e}")
+            self.logger.log_error(
+                f"{type(e).__name__}: {e}",
+                error_type=tag
+            )
 
             if self.error_count > self.max_errors:
-                self.log_debug(f"[UAV-{self.id}] Too many errors → disabling further execution")
+                self.logger.log_error("Too many errors - disabling further execution")
 
     # =============================
     # Mobility
@@ -113,7 +82,7 @@ class BaseUAV(ns.Application):
             pos = mobility.GetPosition()
             return (pos.x, pos.y, pos.z)
         except Exception as e:
-            self.log_debug(f"[UAV-{self.id}] GetPosition error: {e}")
+            self.logger.log_error(f"GetPosition error: {e}", error_type="GetPosition")
             return (0, 0, 0)
 
     def DistanceTo(self, node):
@@ -122,7 +91,7 @@ class BaseUAV(ns.Application):
             m2 = node.GetObject[ns.MobilityModel]()
             return m1.GetDistanceFrom(m2)
         except Exception as e:
-            self.log_debug(f"[UAV-{self.id}] Distance error: {e}")
+            self.logger.log_error(f"Distance error: {e}", error_type="DistanceTo")
             return 99999
 
     # =============================
@@ -135,7 +104,7 @@ class BaseUAV(ns.Application):
 
             self.m_socket.Bind()
 
-            self.log_debug(f"[UAV-{self.id}] Application Started")
+            self.logger.log_debug(f"[UAV-{self.id}] Application Started")
 
             self._schedule_poll()
 
@@ -151,7 +120,7 @@ class BaseUAV(ns.Application):
             if self.m_socket:
                 self.m_socket.Close()
         except Exception as e:
-            self.log_debug(f"[UAV-{self.id}] Stop error: {e}")
+            self.logger.log_error(f"Stop error: {e}", error_type="StopApplication")
 
     # =============================
     # Mobility Monitor
@@ -192,7 +161,7 @@ class BaseUAV(ns.Application):
             return 10 * math.log10(pr) + 20
 
         except Exception as e:
-            self.log_debug(f"[UAV-{self.id}] RSSI error: {e}")
+            self.logger.log_error(f"RSSI error: {e}", error_type="GetRSSI")
             return -999
 
     # =============================
@@ -218,6 +187,8 @@ class BaseUAV(ns.Application):
                     best_rssi = rssi
 
             if best is None:
+                self.logger.log_warning("No ZSP in range", warning_type="coverage")
+                self.logger.log_out_of_range()
                 return
 
             if self.current_zsp is None:
@@ -230,7 +201,12 @@ class BaseUAV(ns.Application):
             current_rssi = self.GetRSSI(self.current_zsp.node)
 
             if best_rssi - current_rssi > self.handover_margin:
-                self.log_debug(f"[UAV-{self.id}] Handover {self.zsp_id} → {best.zsp_id}")
+                self.logger.log_handover(
+                    self.zsp_id, 
+                    best.zsp_id,
+                    from_rssi=current_rssi,
+                    to_rssi=best_rssi
+                )
                 self.SwitchConnection(best)
 
         self._safe_execute("ScanZSP", logic)
@@ -245,6 +221,7 @@ class BaseUAV(ns.Application):
 
             addr = zsp.GetAddress()
 
+            old_zsp_id = self.zsp_id
             self.current_zsp = zsp
             self.zsp_id = zsp.zsp_id
             self.peer_address = addr
@@ -252,8 +229,9 @@ class BaseUAV(ns.Application):
             self.Connect(addr)
 
             self.authenticated = False
-
-            self.log_debug(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
+            if old_zsp_id is not None:
+                self.logger.log_disconnected_from_zsp(old_zsp_id, reason="handover")
+            self.logger.log_debug(f"[UAV-{self.id}] Connected to ZSP-{zsp.zsp_id}")
 
             self.on_connected_to_zsp()
 
@@ -263,7 +241,7 @@ class BaseUAV(ns.Application):
 
         def logic():
             if not self.authenticated:
-                self.log_debug(f"[UAV-{self.id}] Trigger D2Z Authentication")
+                self.logger.log_authentication(AuthenticationPhase.INITIATED)
                 self._safe_schedule(0.5, self.D2Z_InitiateAuth)
 
         self._safe_execute("on_connected", logic)
@@ -313,7 +291,7 @@ class BaseUAV(ns.Application):
                     self.ProcessReceivedData(buf)
 
                 except Exception as e:
-                    self.log_debug(f"[UAV-{self.id}] Packet error: {e}")
+                    self.logger.log_error(f"Packet error: {e}", error_type="packet_processing")
 
         self._safe_execute("poll_socket", logic)
 
@@ -332,7 +310,7 @@ class BaseUAV(ns.Application):
 
             self.m_socket.Connect(final_addr)
 
-            self.log_debug(f"[DEBUG] UAV-{self.id} connected to {zsp_address}:{zsp_port}")
+            self.logger.log_debug(f"Connected to {zsp_address}:{zsp_port}")
 
         self._safe_execute("Connect", logic)
 

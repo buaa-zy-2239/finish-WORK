@@ -2,6 +2,9 @@ import struct
 import random
 import hashlib
 
+from Common.logging_framework import (
+    AuthenticationPhase, DatabaseOperation, IdentifierOperation
+)
 from Entity.ZSP.BaseZSP import BaseZSP
 from Caculator.ChaoticMap import ChaoticMap
 from Caculator.Hash import hash_256
@@ -79,8 +82,15 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_M1(self, pid, payload, mac, from_addr):
 
+        self.logger.log_message_received("M1", len(payload))
+        
         if pid not in self.uav_db:
-            self.log_debug(f"[ZSP-{self.zsp_id}] Unknown PID")
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
 
         crp = self.uav_db[pid]["crp"]
@@ -88,10 +98,12 @@ class PMAP_ZSP(BaseZSP):
         m1 = PMAP.decode(PMAP.M1,decrypted)
         ni = m1[2]
         if not self.verify_mac(payload, [struct.pack(">d", ni)], mac):
-            self.log_debug(f"[ZSP-{self.zsp_id}] M1 MAC fail")
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
-
-        self.log_debug(f"[ZSP-{self.zsp_id}] M1 verified")
 
         ns = random.random()
 
@@ -116,6 +128,7 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, from_addr)
+        self.logger.log_message_sent("M2", len(packet))
 
     # =========================================================
     # M3
@@ -123,7 +136,15 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_M3_4(self, pid, payload, mac, from_addr):
 
+        self.logger.log_message_received("M2", len(payload))
+        
         if pid not in self.uav_db:
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
 
         crp = self.uav_db[pid]["crp"]
@@ -147,10 +168,12 @@ class PMAP_ZSP(BaseZSP):
                       int(hash_256(str(session.ns)), 16)
 
         session.session_key = session_key
-
-        self.log_info(f"[ZSP-{self.zsp_id}] Session key established is {hex(session_key)}")
         if not self.verify_mac(payload, [struct.pack(">d", session.ni), struct.pack(">d", response)], mac):
-            self.log_debug(f"[ZSP-{self.zsp_id}] M3_4 MAC fail")
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
         seed = self.chaotic.encrypt_by_crp(str(session.ni).encode() + str(session.ns).encode(), crp)
         challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
@@ -158,14 +181,43 @@ class PMAP_ZSP(BaseZSP):
         self.UpdateUAVPID(pid, new_pid, challenge, response)
         self.uav_db[new_pid]["crp"] = [challenge, response]
         self.D2Z_sessions[new_pid] = self.D2Z_sessions.pop(pid)
+        # ⭐ 记录会话建立
+        import hashlib
+        key_hash = hex(session_key)[2:]
+        self.logger.log_session_established(
+            session_id=new_pid,
+            session_key_hash=key_hash
+        )
+        
+        # ⭐ 记录认证成功
+        self.logger.log_authentication(
+            AuthenticationPhase.SUCCESS,
+            success=True,
+            peer_id=None
+        )
+        
+        # ⭐ 记录PID轮换
+        self.logger.log_pid_rotation(
+            old_pid=pid,
+            new_pid=new_pid,
+            old_crp=crp,
+            new_crp=[challenge, response]
+        )
         
     # =========================================================
     # D2D M1_2
     # =========================================================
 
     def handle_D2D_M1_2(self, pid, payload, mac, from_addr):
+        self.logger.log_message_received("D2D M1/2", len(payload))
+        
         if pid not in self.uav_db:
-            self.log_debug(f"[ZSP-{self.zsp_id}] invalid pid")
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
 
         m1_size = PMAP.D2D_M1.size
@@ -180,8 +232,12 @@ class PMAP_ZSP(BaseZSP):
         ni = m1[2]
 
         if not self.verify_mac(payload, [struct.pack(">d", ni),struct.pack(">32s", bytes.fromhex(pid_j))], mac):
-            self.log_debug(f"[ZSP-{self.zsp_id}] M1 MAC fail")
-            return 
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
+            return
         session = D2D_Session()
         session.ni = ni
         session.n1 = random.random()
@@ -212,7 +268,7 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, from_addr)
-       
+        self.logger.message_sent("D2D_M3",len(packet))
         
 
     # =========================================================
@@ -221,7 +277,15 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_D2D_M4_5(self, pid, payload, mac, from_addr):
 
+        self.logger.log_message_received("M4/5", len(payload))
+        
         if pid not in self.uav_db:
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
 
         m4_size = PMAP.D2D_M4.size
@@ -237,8 +301,12 @@ class PMAP_ZSP(BaseZSP):
         response = m5[5]
 
         if not self.verify_mac(payload, [struct.pack(">d", ni),struct.pack(">d", response)], mac):
-            self.log_debug(f"[ZSP-{self.zsp_id}] M4_5 MAC fail")
-            return 
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
+            return
         session = self.D2D_sessions[pid+pid_j]
         session.ni = ni
         m6 = PMAP.encode(
@@ -280,7 +348,7 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, session.to_addr)
-        
+        self.logger.message_sent("M6/7/8", len(packet))
 
         seed = self.chaotic.encrypt_by_crp(
                 str(session.n1).encode() + str(session.ni).encode(),
@@ -296,7 +364,15 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_D2D_M9_10(self, pid, payload, mac, from_addr):
 
+        self.logger.log_message_received("M9/10", len(payload))
+        
         if pid not in self.uav_db:
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return
 
         m9_size = PMAP.D2D_M9.size
@@ -312,7 +388,12 @@ class PMAP_ZSP(BaseZSP):
         response = m10[5]
 
         if not self.verify_mac(payload, [struct.pack(">d", nj),struct.pack(">d", response)], mac):
-            self.log_debug(f"[ZSP-{self.zsp_id}] M9_10 MAC fail")
+            # ⭐ 认证失败
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
             return 
         session = self.D2D_sessions[pid_i+pid]
         session.nj = nj
@@ -333,7 +414,7 @@ class PMAP_ZSP(BaseZSP):
         session_key = int(hash_256(str(session.ni)), 16) ^ \
             int(hash_256(str(session.nj)), 16)
         session.session_key = session_key
-        self.log_info(f"[ZSP-{self.zsp_id}] D2D Session key established is {hex(session_key)}")
+        
 
         packet = PMAPPacket.build(
             PMAPMessageType.D2D_M11,
