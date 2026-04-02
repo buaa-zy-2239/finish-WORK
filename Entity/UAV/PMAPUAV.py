@@ -150,10 +150,6 @@ class PMAP_UAV(BaseUAV):
             msg_type, pid, payload, mac = PMAPPacket.parse(packet_bytes)
             if pid != self.pid:
                 return
-        except Exception as e:
-            self.logger.log_error(f"Event processing error: {e}", error_type="Unvalid UAV")
-            return
-
             # -----------------------------------------------------
             # Receive M2
             # -----------------------------------------------------
@@ -422,7 +418,7 @@ class PMAP_UAV(BaseUAV):
                 mac_input
             )
             self.SendData(packet)
-
+            pid = self.pid
             self.crp = [challenge, response]
             self.pid = hash_256(str(self.id) + str(response))
 
@@ -433,7 +429,7 @@ class PMAP_UAV(BaseUAV):
             key_hash = hex(self.session_key)[2:]
             self.logger.log_session_established(
                 session_key_hash=key_hash,
-                peer_id=self.zsp_id
+                peer_id=pid
             )
             
             # ⭐ 记录认证成功

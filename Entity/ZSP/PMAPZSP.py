@@ -162,6 +162,17 @@ class PMAP_ZSP(BaseZSP):
 
         ni = m3[3]
         response = m4[4]
+        if pid not in self.D2Z_sessions:
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=None
+            )
+            self.logger.log_error(
+                f"Session not found for pid: {pid}",
+                error_type="session_missing"
+            )
+            return
         session = self.D2Z_sessions[pid]
         session.ni = ni 
         session_key = int(hash_256(str(ni)), 16) ^ \
@@ -187,14 +198,14 @@ class PMAP_ZSP(BaseZSP):
         self.logger.log_session_established(
             session_id=new_pid,
             session_key_hash=key_hash,
-            peer_id = None
+            peer_id = self.zsp_id
         )
         
         # ⭐ 记录认证成功
         self.logger.log_authentication(
             AuthenticationPhase.SUCCESS,
             success=True,
-            peer_id=None
+            peer_id=self.zsp_id
         )
         
         # ⭐ 记录PID轮换
@@ -349,7 +360,7 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, session.to_addr)
-        self.logger.message_sent("M6/7/8", len(packet))
+        self.logger.log_message_sent("M6/7/8", len(packet))
 
         seed = self.chaotic.encrypt_by_crp(
                 str(session.n1).encode() + str(session.ni).encode(),
