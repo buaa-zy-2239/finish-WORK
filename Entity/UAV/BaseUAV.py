@@ -241,7 +241,7 @@ class BaseUAV(ns.Application):
 
         def logic():
             if not self.authenticated:
-                self.logger.log_authentication(AuthenticationPhase.INITIATED)
+                self.logger.log_authentication(AuthenticationPhase.INITIATED,success=True, peer_id=self.zsp_id)
                 self._safe_schedule(0.5, self.D2Z_InitiateAuth)
 
         self._safe_execute("on_connected", logic)
