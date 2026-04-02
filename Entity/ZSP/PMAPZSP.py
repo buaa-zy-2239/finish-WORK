@@ -136,7 +136,7 @@ class PMAP_ZSP(BaseZSP):
 
     def handle_M3_4(self, pid, payload, mac, from_addr):
 
-        self.logger.log_message_received("M2", len(payload))
+        self.logger.log_message_received("M3_4", len(payload))
         
         if pid not in self.uav_db:
             # ⭐ 认证失败
@@ -186,7 +186,8 @@ class PMAP_ZSP(BaseZSP):
         key_hash = hex(session_key)[2:]
         self.logger.log_session_established(
             session_id=new_pid,
-            session_key_hash=key_hash
+            session_key_hash=key_hash,
+            peer_id = None
         )
         
         # ⭐ 记录认证成功
@@ -268,7 +269,7 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, from_addr)
-        self.logger.message_sent("D2D_M3",len(packet))
+        self.logger.log_message_sent("D2D_M3",len(packet))
         
 
     # =========================================================

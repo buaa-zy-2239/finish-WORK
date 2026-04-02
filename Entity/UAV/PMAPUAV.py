@@ -149,7 +149,10 @@ class PMAP_UAV(BaseUAV):
         try:
             msg_type, pid, payload, mac = PMAPPacket.parse(packet_bytes)
             if pid != self.pid:
-                self.logger.log_error(f"Event processing error: {e}", error_type="Unvalid UAV")
+                return
+        except Exception as e:
+            self.logger.log_error(f"Event processing error: {e}", error_type="Unvalid UAV")
+            return
 
             # -----------------------------------------------------
             # Receive M2
@@ -167,8 +170,7 @@ class PMAP_UAV(BaseUAV):
                     plaintext
                 )
                 if ni != self.ni:
-
-                    self.logger.log_error(f"Event processing error: {e}", error_type="D2Z M2 Unmatched ni")
+                    self.logger.log_error(f"Event processing error: ni mismatch", error_type="M2 ni mismatch")
                     return
 
                 self.ns = ns
@@ -190,7 +192,7 @@ class PMAP_UAV(BaseUAV):
                 )
                 session = self.D2D_sessions[pid_j]
                 if ni != session.ni:
-                    self.logger.log_error(f"Event processing error: {e}", error_type="D2D M3 Unmatched ni")
+                    self.logger.log_error(f"Event processing error: ni mismatch", error_type="D2D M3 ni mismatch")
                     return
 
                 session.n1 = n1
@@ -318,7 +320,7 @@ class PMAP_UAV(BaseUAV):
                 int(hash_256(str(session.ni)), 16) ^ \
                 int(hash_256(str(session.nj)), 16)
 
-                skey_hash = hashlib.sha256(bytes.fromhex(hex(session.session_key))).hexdigest()[:16]
+                key_hash = hashlib.sha256(bytes.fromhex(hex(session.session_key))).hexdigest()[:16]
                 self.logger.log_session_established(
                     session_key_hash=key_hash,
                     peer_id=pid_i
@@ -375,8 +377,8 @@ class PMAP_UAV(BaseUAV):
                 self.pid = new_pid
                 self.crp = self.new_crp
         except Exception as e:
-            # ⭐ 错误日志
-            self.logger.log_message_error("UNKNOWN", str(e), len(msg))
+            msg_bytes = packet_bytes if isinstance(packet_bytes, (bytes, bytearray)) else b''
+            self.logger.log_message_error("UNKNOWN", str(e), len(msg_bytes))
 
 
 

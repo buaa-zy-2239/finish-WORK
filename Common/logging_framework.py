@@ -202,7 +202,7 @@ class LogManager:
         if key not in self._file_handles:
             file_path = os.path.join(
                 self.log_dir,
-                f"sim_{self.sim_id}_{entity_type.value}_{entity_id}.jsonl"
+                f"sim_{self.sim_id}_{entity_type.value.lower()}_{entity_id}.jsonl"
             )
             try:
                 self._file_handles[key] = open(file_path, "w", buffering=1)
