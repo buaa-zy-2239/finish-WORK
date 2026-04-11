@@ -1,19 +1,5 @@
-# Python
-__pycache__/
-Common/__pycache__/
-Entity/ZSP/__pycache__/
-Entity/UAV/__pycache__/
-Caculator/__pycache__/
-Mobility/__pycache__/
-new_protocol/__pycache__/
-BlockChain/__pycache__/
-KeyGen/__pycache__/
-tests/__pycache__/
-Protocol/PMAP/__pycache__/
-Backend/__pycache__/
-Backend/analysis/__pycache__/
-Backend/services/__pycache__/
-Backend/core/__pycache__/
-Backend/api/routes/__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
 
 logs/*
