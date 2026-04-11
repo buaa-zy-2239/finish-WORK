@@ -1,4 +1,7 @@
 {
+  "task_id": "sim_20260411_120000",
+  "name": "D2Z Authentication Test",
+  "duration": 30,
   "uavs": [
     {
       "id": 0,
@@ -10,30 +13,17 @@
           [20, [400, 100, 50]]
         ]
       }
-    },
-    {
-      "id": 1,
-      "mobility": {
-        "type": "waypoint",
-        "waypoints": [
-          [0, [100, 0, 50]],
-          [10, [300, 0, 50]],
-          [20, [600, 100, 50]]
-        ]
-      }
     }
   ],
   "zsps": [
     {
       "id": 2,
       "position": [0, 0, 100]
-    },
-    {
-      "id": 3,
-      "position": [500, 0, 100]
     }
   ],
-  "simulation": {
-    "duration": 30
+  "protocol": "PMAP",
+  "channel": {
+    "type": "CSMA",
+    "datarate": "100Mbps"
   }
 }
