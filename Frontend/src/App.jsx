@@ -1,4 +1,3 @@
-// Frontend/src/App.jsx
 import React, { useState } from 'react';
 import SimulationManager from './components/SimulationManager';
 import AnalysisDashboard from './components/AnalysisDashboard';

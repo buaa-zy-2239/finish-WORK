@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 
 from config import config
-from log_service import log_service
+from services.log_service import log_service
 
 
 class SimulationService:

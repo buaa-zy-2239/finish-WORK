@@ -1,0 +1,586 @@
+[STARTUP] UAV D2Z Authentication Simulation Platform v1.0.0
+[LOG_PARSER] Found 0 log files
+[STARTUP] Logs loaded successfully
+INFO:     127.0.0.1:42118 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42118 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42118 - "OPTIONS /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42126 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42126 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42126 - "POST /api/v1/simulation/run/sim_20260411_173856 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42126 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60888 - "GET /api/v1/simulation/config/sim_20260411_173856 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60888 - "GET /api/v1/simulation/status/sim_20260411_173856 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60900 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60900 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60900 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60900 - "POST /api/v1/simulation/run/sim_20260411_174008 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60900 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41562 - "GET /api/v1/simulation/config/sim_20260411_174008 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41562 - "GET /api/v1/simulation/status/sim_20260411_174008 HTTP/1.1" 200 OK
+[STARTUP] UAV D2Z Authentication Simulation Platform v1.0.0
+[LOG_PARSER] Found 0 log files
+[STARTUP] Logs loaded successfully
+INFO:     127.0.0.1:55994 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55994 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_174437 created successfully
+INFO:     127.0.0.1:55994 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55994 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_174437...
+INFO:     127.0.0.1:55994 - "POST /api/v1/simulation/run/sim_20260411_174437 HTTP/1.1" 200 OK
+[SIMULATION] Background task started for sim_20260411_174437
+[SIMULATION] Task sim_20260411_174437 progress: 0%
+[SIMULATION] Task sim_20260411_174437 progress: 10%
+INFO:     127.0.0.1:55994 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_174437 progress: 20%
+[SIMULATION] Task sim_20260411_174437 progress: 30%
+[SIMULATION] Task sim_20260411_174437 progress: 40%
+[SIMULATION] Task sim_20260411_174437 progress: 50%
+INFO:     127.0.0.1:35688 - "GET /api/v1/simulation/config/sim_20260411_174437 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35688 - "GET /api/v1/simulation/status/sim_20260411_174437 HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_174437 progress: 60%
+[SIMULATION] Task sim_20260411_174437 progress: 70%
+[SIMULATION] Task sim_20260411_174437 progress: 80%
+[SIMULATION] Task sim_20260411_174437 progress: 90%
+[SIMULATION] Task sim_20260411_174437 progress: 100%
+[SIMULATION] Task sim_20260411_174437 completed successfully
+INFO:     127.0.0.1:35690 - "GET /api/v1/simulation/config/sim_20260411_174437 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35690 - "GET /api/v1/simulation/status/sim_20260411_174437 HTTP/1.1" 200 OK
+[LOG_PARSER] Found 0 log files
+INFO:     127.0.0.1:53406 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53412 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53406 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53412 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_PARSER] Found 0 log files
+INFO:     127.0.0.1:53412 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53406 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53408 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_PARSER] Found 0 log files
+INFO:     127.0.0.1:53408 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53406 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53412 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53412 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53412 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[STARTUP] UAV D2Z Authentication Simulation Platform v1.0.0
+[LOG_PARSER] Found 0 log files
+[STARTUP] Logs loaded successfully
+INFO:     127.0.0.1:56320 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56320 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_174720 created successfully
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_174720/config.json
+INFO:     127.0.0.1:56320 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56346 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_174720...
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_174720/config.json
+INFO:     127.0.0.1:56346 - "POST /api/v1/simulation/run/sim_20260411_174720 HTTP/1.1" 200 OK
+[SIMULATION] Background task started for sim_20260411_174720
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_174720/config.json
+[SIMULATION] Using simulator: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Running: python3 /home/zhang/UAV/simulator_builder.py --config /home/zhang/UAV_Simulation/tasks/sim_20260411_174720/config.json
+[SIMULATION] Simulator error:
+Traceback (most recent call last):
+  File "/home/zhang/UAV/simulator_builder.py", line 12, in <module>
+    from ns import ns
+ModuleNotFoundError: No module named 'ns'
+
+[SIMULATION] Task sim_20260411_174720 failed with return code 1
+INFO:     127.0.0.1:56346 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56346 - "GET /api/v1/simulation/config/sim_20260411_174720 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56346 - "GET /api/v1/simulation/status/sim_20260411_174720 HTTP/1.1" 200 OK
+[STARTUP] UAV D2Z Authentication Simulation Platform v1.0.0
+[LOG_PARSER] Found 0 log files
+[STARTUP] Logs loaded successfully
+INFO:     127.0.0.1:45512 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45512 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45512 - "OPTIONS /api/v1/simulation/create HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_175317 created successfully
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+INFO:     127.0.0.1:45516 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45516 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_175317...
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+INFO:     127.0.0.1:45516 - "POST /api/v1/simulation/run/sim_20260411_175317 HTTP/1.1" 200 OK
+[SIMULATION] ========== Background task started for sim_20260411_175317 ==========
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+[SIMULATION] Found ns3 command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using ns3 command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using simulator script: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Running command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3 run /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Task progress: 5%
+[SIMULATION] ===== Simulation Output Start =====
+[NS3] [0/2] Re-checking globbed directories...
+[NS3] ninja: no work to do.
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __cxx_global_var_initcling_module_132_, _GLOBAL__sub_I_cling_module_132, __orc_init_func.cling-module-132, _ZN3ns3L16g_timeInitHelperE, $.cling-module-132.__inits.0 }) }
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __orc_init_func.cling-module-132 }) }
+[NS3] [BUILDER] Loaded config from /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+[NS3] [Blockchain] Contract deployed and ready
+[NS3] [BUILDER] SimulationBuilderEnhanced initialized
+[NS3] [BUILDER] Starting simulation build and execution...
+[NS3] [BUILDER] Created 4 nodes
+[NS3] [BUILDER] Network stack installed
+[NS3] [BUILDER] ZSP-2 created
+[NS3] [BUILDER] ZSP-3 created
+[NS3] [BUILDER] UAV-0 created
+[NS3] [BUILDER] UAV-1 created
+[NS3] [Blockchain] UAV registered d80ca59d
+[NS3] [Blockchain] UAV registered fbbee1bd
+[NS3] [BUILDER] Pre-registered 2 UAVs
+[NS3] [BUILDER] Running simulation for 30 seconds...
+[NS3] [Blockchain] PID update d80ca5 -> 2e58a6
+[NS3] [Blockchain] PID update fbbee1 -> ca7a21
+[NS3] [BUILDER] Simulation completed successfully
+[NS3] 
+[NS3] ============================================================
+[NS3] SIMULATION RESULT SUMMARY
+[NS3] ============================================================
+[NS3] {
+[NS3]   "status": "completed",
+[NS3]   "statistics": {
+[NS3]     "start_time": "2026-04-11T17:53:30.500183",
+[NS3]     "end_time": "2026-04-11T17:53:50.561330",
+[NS3]     "total_uavs": 2,
+[NS3]     "total_zsps": 2,
+[NS3]     "total_messages": 0,
+[NS3]     "successful_authentications": 0,
+[NS3]     "failed_authentications": 0
+[NS3]   },
+[NS3]   "uav_count": 2,
+[NS3]   "zsp_count": 2
+[NS3] }
+[NS3] ============================================================
+[SIMULATION] ===== Simulation Output End =====
+[SIMULATION] ✓ Simulator executed successfully (return code: 0)
+[LOG_PARSER] Found 0 log files
+[SIMULATION] ✓ Logs reloaded, found 0 events
+[SIMULATION] ========== Task sim_20260411_175317 completed successfully ==========
+INFO:     127.0.0.1:45516 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45518 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_175317...
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+INFO:     127.0.0.1:45524 - "POST /api/v1/simulation/run/sim_20260411_175317 HTTP/1.1" 200 OK
+[SIMULATION] ========== Background task started for sim_20260411_175317 ==========
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+[SIMULATION] Found ns3 command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using ns3 command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using simulator script: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Running command: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3 run /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Task progress: 5%
+[SIMULATION] ===== Simulation Output Start =====
+[NS3] [0/2] Re-checking globbed directories...
+[NS3] ninja: no work to do.
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { _ZN3ns3L16g_timeInitHelperE, __cxx_global_var_initcling_module_132_, _GLOBAL__sub_I_cling_module_132, __orc_init_func.cling-module-132, $.cling-module-132.__inits.0 }) }
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __orc_init_func.cling-module-132 }) }
+[NS3] [BUILDER] Loaded config from /home/zhang/UAV_Simulation/tasks/sim_20260411_175317/config.json
+[NS3] [Blockchain] Contract deployed and ready
+[NS3] [BUILDER] SimulationBuilderEnhanced initialized
+[NS3] [BUILDER] Starting simulation build and execution...
+[NS3] [BUILDER] Created 4 nodes
+[NS3] [BUILDER] Network stack installed
+[NS3] [BUILDER] ZSP-2 created
+[NS3] [BUILDER] ZSP-3 created
+[NS3] [BUILDER] UAV-0 created
+[NS3] [BUILDER] UAV-1 created
+[NS3] [Blockchain] UAV registered d80ca59d
+[NS3] [Blockchain] UAV registered fbbee1bd
+[NS3] [BUILDER] Pre-registered 2 UAVs
+[NS3] [BUILDER] Running simulation for 30 seconds...
+[NS3] [Blockchain] PID update d80ca5 -> 9eb893
+[NS3] [Blockchain] PID update fbbee1 -> d758cf
+[NS3] [BUILDER] Simulation completed successfully
+[NS3] 
+[NS3] ============================================================
+[NS3] SIMULATION RESULT SUMMARY
+[NS3] ============================================================
+[NS3] {
+[NS3]   "status": "completed",
+[NS3]   "statistics": {
+[NS3]     "start_time": "2026-04-11T17:53:59.657949",
+[NS3]     "end_time": "2026-04-11T17:54:18.972540",
+[NS3]     "total_uavs": 2,
+[NS3]     "total_zsps": 2,
+[NS3]     "total_messages": 0,
+[NS3]     "successful_authentications": 0,
+[NS3]     "failed_authentications": 0
+[NS3]   },
+[NS3]   "uav_count": 2,
+[NS3]   "zsp_count": 2
+[NS3] }
+[NS3] ============================================================
+[SIMULATION] ===== Simulation Output End =====
+[SIMULATION] ✓ Simulator executed successfully (return code: 0)
+[LOG_PARSER] Found 0 log files
+[SIMULATION] ✓ Logs reloaded, found 0 events
+[SIMULATION] ========== Task sim_20260411_175317 completed successfully ==========
+INFO:     127.0.0.1:47504 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47510 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42374 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51694 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51706 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51710 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47504 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42374 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51694 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51706 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51710 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47510 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42374 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47504 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51694 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51710 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51710 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51694 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+[LOG_PARSER] Found 0 log files
+INFO:     127.0.0.1:51724 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51738 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /api/v1/simulation/config/sim_20260411_175317 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51742 - "GET /api/v1/simulation/status/sim_20260411_175317 HTTP/1.1" 200 OK
+[LOG_SERVICE] Initialized with log_dir: /home/zhang/UAV/logs
+[STARTUP] UAV D2Z Authentication Simulation Platform v1.0.0
+[LOG_SERVICE] Found 14 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+[STARTUP] Logs loaded successfully
+INFO:     127.0.0.1:52096 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52096 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_175710 created successfully
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175710/config.json
+INFO:     127.0.0.1:52096 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52096 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_175710...
+INFO:     127.0.0.1:52096 - "POST /api/v1/simulation/run/sim_20260411_175710 HTTP/1.1" 200 OK
+
+[SIMULATION] ========== Starting simulation sim_20260411_175710 ==========
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175710/config.json
+[SIMULATION] Log directory: /home/zhang/UAV/logs
+[SIMULATION] Using ns3: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using simulator: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175710/config.json
+[SIMULATION] Running: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3 run /home/zhang/UAV/simulator_builder.py
+[SIMULATION] ===== Simulation Output Start =====
+[NS3] [0/2] Re-checking globbed directories...
+[NS3] ninja: no work to do.
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { $.cling-module-132.__inits.0, __cxx_global_var_initcling_module_132_, __orc_init_func.cling-module-132, _ZN3ns3L16g_timeInitHelperE, _GLOBAL__sub_I_cling_module_132 }) }
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __orc_init_func.cling-module-132 }) }
+[NS3] [BUILDER] Loaded config from /home/zhang/UAV_Simulation/tasks/sim_20260411_175710/config.json
+[NS3] [Blockchain] Contract deployed and ready
+[NS3] [BUILDER] SimulationBuilderEnhanced initialized
+[NS3] [BUILDER] Starting simulation build and execution...
+[NS3] [BUILDER] Created 4 nodes
+[NS3] [BUILDER] Network stack installed
+[NS3] [BUILDER] ZSP-2 created
+[NS3] [BUILDER] ZSP-3 created
+[NS3] [BUILDER] UAV-0 created
+[NS3] [BUILDER] UAV-1 created
+[NS3] [Blockchain] UAV registered d80ca59d
+[NS3] [Blockchain] UAV registered fbbee1bd
+[NS3] [BUILDER] Pre-registered 2 UAVs
+[NS3] [BUILDER] Running simulation for 30 seconds...
+[NS3] [Blockchain] PID update d80ca5 -> 763bcd
+[NS3] [Blockchain] PID update fbbee1 -> 488143
+[NS3] [BUILDER] Simulation completed successfully
+[NS3] 
+[NS3] ============================================================
+[NS3] SIMULATION RESULT SUMMARY
+[NS3] ============================================================
+[NS3] {
+[NS3]   "status": "completed",
+[NS3]   "statistics": {
+[NS3]     "start_time": "2026-04-11T17:57:20.379139",
+[NS3]     "end_time": "2026-04-11T17:57:39.463971",
+[NS3]     "total_uavs": 2,
+[NS3]     "total_zsps": 2,
+[NS3]     "total_messages": 0,
+[NS3]     "successful_authentications": 0,
+[NS3]     "failed_authentications": 0
+[NS3]   },
+[NS3]   "uav_count": 2,
+[NS3]   "zsp_count": 2
+[NS3] }
+[NS3] ============================================================
+[SIMULATION] ===== Simulation Output End =====
+[SIMULATION] ✓ Simulator completed successfully
+[LOG_SERVICE] Found 18 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+[SIMULATION] ✓ Logs reloaded: 0 events found
+[SIMULATION] ========== Task sim_20260411_175710 completed ==========
+
+INFO:     127.0.0.1:52096 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56950 - "GET /api/v1/simulation/config/sim_20260411_175710 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56950 - "GET /api/v1/simulation/status/sim_20260411_175710 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 18 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:57254 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57270 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57280 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57254 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57270 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57280 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 18 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:57270 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57254 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57280 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 18 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:57284 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57284 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57284 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:35790 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35780 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35790 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:34950 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34966 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34976 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:34976 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34966 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_175837 created successfully
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175837/config.json
+INFO:     127.0.0.1:34950 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_175837...
+INFO:     127.0.0.1:34950 - "POST /api/v1/simulation/run/sim_20260411_175837 HTTP/1.1" 200 OK
+
+[SIMULATION] ========== Starting simulation sim_20260411_175837 ==========
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175837/config.json
+[SIMULATION] Log directory: /home/zhang/UAV/logs
+[SIMULATION] Using ns3: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using simulator: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_175837/config.json
+[SIMULATION] Running: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3 run /home/zhang/UAV/simulator_builder.py
+[SIMULATION] ===== Simulation Output Start =====
+[NS3] [0/2] Re-checking globbed directories...
+[NS3] ninja: no work to do.
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { $.cling-module-132.__inits.0, __orc_init_func.cling-module-132, _ZN3ns3L16g_timeInitHelperE, _GLOBAL__sub_I_cling_module_132, __cxx_global_var_initcling_module_132_ }) }
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __orc_init_func.cling-module-132 }) }
+[NS3] [BUILDER] Loaded config from /home/zhang/UAV_Simulation/tasks/sim_20260411_175837/config.json
+[NS3] [Blockchain] Contract deployed and ready
+[NS3] [BUILDER] SimulationBuilderEnhanced initialized
+[NS3] [BUILDER] Starting simulation build and execution...
+[NS3] [BUILDER] Created 4 nodes
+[NS3] [BUILDER] Network stack installed
+[NS3] [BUILDER] ZSP-2 created
+[NS3] [BUILDER] ZSP-3 created
+[NS3] [BUILDER] UAV-0 created
+[NS3] [BUILDER] UAV-1 created
+[NS3] [Blockchain] UAV registered d80ca59d
+[NS3] [Blockchain] UAV registered fbbee1bd
+[NS3] [BUILDER] Pre-registered 2 UAVs
+[NS3] [BUILDER] Running simulation for 30 seconds...
+[NS3] [Blockchain] PID update d80ca5 -> 6c8f1d
+[NS3] [Blockchain] PID update fbbee1 -> d03c85
+[NS3] [BUILDER] Simulation completed successfully
+[NS3] 
+[NS3] ============================================================
+[NS3] SIMULATION RESULT SUMMARY
+[NS3] ============================================================
+[NS3] {
+[NS3]   "status": "completed",
+[NS3]   "statistics": {
+[NS3]     "start_time": "2026-04-11T17:58:48.628785",
+[NS3]     "end_time": "2026-04-11T17:59:08.572880",
+[NS3]     "total_uavs": 2,
+[NS3]     "total_zsps": 2,
+[NS3]     "total_messages": 0,
+[NS3]     "successful_authentications": 0,
+[NS3]     "failed_authentications": 0
+[NS3]   },
+[NS3]   "uav_count": 2,
+[NS3]   "zsp_count": 2
+[NS3] }
+[NS3] ============================================================
+[SIMULATION] ===== Simulation Output End =====
+[SIMULATION] ✓ Simulator completed successfully
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+[SIMULATION] ✓ Logs reloaded: 0 events found
+[SIMULATION] ========== Task sim_20260411_175837 completed ==========
+
+INFO:     127.0.0.1:34950 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40840 - "GET /api/v1/simulation/config/sim_20260411_175837 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40840 - "GET /api/v1/simulation/status/sim_20260411_175837 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:40840 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40842 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40840 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40842 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40842 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40840 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:38034 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38044 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38050 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:38050 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38044 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38034 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:38058 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38058 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38058 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:38058 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60896 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60902 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:53694 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53704 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53712 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:53704 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53712 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53694 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:53694 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53712 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53704 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+INFO:     127.0.0.1:53704 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53712 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53694 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53694 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53694 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53726 - "GET /api/v1/simulation/config/sim_20260411_175837 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53726 - "GET /api/v1/simulation/status/sim_20260411_175837 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:49074 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49084 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49074 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49084 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49092 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49092 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:49084 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49074 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49092 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:49102 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49102 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49102 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:39130 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39132 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39130 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+[LOG_SERVICE] No log files found in /home/zhang/UAV/logs
+INFO:     127.0.0.1:39146 - "GET /api/v1/metrics/summary HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39146 - "GET /api/v1/analysis/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39146 - "GET /api/v1/analysis/events?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:0 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:54206 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54206 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54206 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54206 - "OPTIONS /api/v1/simulation/create HTTP/1.1" 200 OK
+[SIMULATION] Task sim_20260411_190807 created successfully
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_190807/config.json
+INFO:     127.0.0.1:44532 - "POST /api/v1/simulation/create HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44532 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK
+[SIMULATION] Starting task sim_20260411_190807...
+INFO:     127.0.0.1:44532 - "POST /api/v1/simulation/run/sim_20260411_190807 HTTP/1.1" 200 OK
+
+[SIMULATION] ========== Starting simulation sim_20260411_190807 ==========
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_190807/config.json
+[SIMULATION] Log directory: /home/zhang/UAV/logs
+[SIMULATION] Using ns3: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3
+[SIMULATION] Using simulator: /home/zhang/UAV/simulator_builder.py
+[SIMULATION] Config file: /home/zhang/UAV_Simulation/tasks/sim_20260411_190807/config.json
+[SIMULATION] Running: /home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3 run /home/zhang/UAV/simulator_builder.py
+[SIMULATION] ===== Simulation Output Start =====
+[NS3] [0/2] Re-checking globbed directories...
+[NS3] ninja: no work to do.
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { $.cling-module-132.__inits.0, __orc_init_func.cling-module-132, __cxx_global_var_initcling_module_132_, _ZN3ns3L16g_timeInitHelperE, _GLOBAL__sub_I_cling_module_132 }) }
+[NS3] [runStaticInitializersOnce]: Failed to materialize symbols: { (main, { __orc_init_func.cling-module-132 }) }
+[NS3] [BUILDER] Loaded config from /home/zhang/UAV_Simulation/tasks/sim_20260411_190807/config.json
+[NS3] [Blockchain] Contract deployed and ready
+[NS3] [BUILDER] SimulationBuilderEnhanced initialized
+[NS3] [BUILDER] Starting simulation build and execution...
+[NS3] [BUILDER] Created 4 nodes
+[NS3] [BUILDER] Network stack installed
+[NS3] [BUILDER] ZSP-2 created
+[NS3] [BUILDER] ZSP-3 created
+[NS3] [BUILDER] UAV-0 created
+[NS3] [BUILDER] UAV-1 created
+[NS3] [Blockchain] UAV registered d80ca59d
+[NS3] [Blockchain] UAV registered fbbee1bd
+[NS3] [BUILDER] Pre-registered 2 UAVs
+[NS3] [BUILDER] Running simulation for 30 seconds...
+[NS3] [Blockchain] PID update d80ca5 -> 78e1e9
+[NS3] [Blockchain] PID update fbbee1 -> 302228
+[NS3] [BUILDER] Simulation completed successfully
+[NS3] 
+[NS3] ============================================================
+[NS3] SIMULATION RESULT SUMMARY
+[NS3] ============================================================
+[NS3] {
+[NS3]   "status": "completed",
+[NS3]   "statistics": {
+[NS3]     "start_time": "2026-04-11T19:08:18.999218",
+[NS3]     "end_time": "2026-04-11T19:08:38.206834",
+[NS3]     "total_uavs": 2,
+[NS3]     "total_zsps": 2,
+[NS3]     "total_messages": 0,
+[NS3]     "successful_authentications": 0,
+[NS3]     "failed_authentications": 0
+[NS3]   },
+[NS3]   "uav_count": 2,
+[NS3]   "zsp_count": 2
+[NS3] }
+[NS3] ============================================================
+[SIMULATION] ===== Simulation Output End =====
+[SIMULATION] ✓ Simulator completed successfully
+[LOG_SERVICE] Found 4 log files in /home/zhang/UAV/logs
+[LOG_PARSER] Found 0 log files
+[LOG_SERVICE] Loaded 0 events
+[LOG_SERVICE] No events found after parsing
+[SIMULATION] ✓ Logs reloaded: 0 events found
+[SIMULATION] ========== Task sim_20260411_190807 completed ==========
+
+INFO:     127.0.0.1:44532 - "GET /api/v1/simulation/list HTTP/1.1" 200 OK

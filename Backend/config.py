@@ -1,4 +1,4 @@
-# Backend/config.py - 更新版本
+# Backend/config.py
 """
 后端配置文件
 """
@@ -16,22 +16,25 @@ class Config:
     DEBUG = False
     
     # 项目根目录
-    PROJECT_ROOT = Path(__file__).parent.parent.parent
+    PROJECT_ROOT = Path(__file__).parent.parent
     
-    # 日志目录配置
+    # 日志目录配置 - 与仿真器输出日志的目录一致
+    LOG_DIR = "/home/zhang/UAV/logs"
+    
     @staticmethod
     def get_log_dir():
-        """获取跨平台日志目录"""
-        if os.name == 'nt':  # Windows
-            log_dir = os.path.join(os.path.expanduser('~'), 'UAV_logs', 'ns3_logs')
-        else:  # Linux/Mac
-            log_dir = '/home/zhang/UAV/logs'
-        
+        """获取日志目录"""
+        log_dir = "/home/zhang/UAV/logs"
         os.makedirs(log_dir, exist_ok=True)
         return log_dir
     
     # 仿真任务目录
-    SIMULATION_TASKS_DIR = os.path.join(os.path.expanduser('~'), 'UAV_Simulation', 'tasks')
+    SIMULATION_TASKS_DIR = os.path.expanduser("~/UAV_Simulation/tasks")
+    
+    # NS-3 仿真器相关配置
+    NS3_INSTALL_PATH = os.path.expanduser("~/ns/ns-allinone-3.43/ns-3.43")
+    NS3_COMMAND = os.path.expanduser("~/ns/ns-allinone-3.43/ns-3.43/ns3")
+    SIMULATOR_SCRIPT = "/home/zhang/UAV/simulator_builder.py"
     
     # API 配置
     API_V1_PREFIX = "/api/v1"

@@ -6,7 +6,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Optional
 
-from ...services.log_service import log_service
+from services.log_service import log_service
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
