@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-7.3.0, pluggy-1.6.0
+rootdir: /home/zhang/UAV
+plugins: cov-4.1.0
+collected 11 items
+
+app.py ...........                                                       [100%]
+
+============================= 11 passed in 25.12s ==============================
