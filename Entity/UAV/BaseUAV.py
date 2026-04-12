@@ -5,6 +5,7 @@ import math
 import os
 import time
 import json
+import uuid
 from Common.logging_framework import (
     UAVLogger, AuthenticationPhase, IdentifierOperation
 )
@@ -49,6 +50,7 @@ class BaseUAV(ns.Application):
         self._mobility_interval = 0.3
 
         self.authenticated = False
+        self.d2z_auth_session_id = None
 
         # 容错机制
         self.error_count = 0
@@ -241,7 +243,18 @@ class BaseUAV(ns.Application):
 
         def logic():
             if not self.authenticated:
-                self.logger.log_authentication(AuthenticationPhase.INITIATED)
+                self.d2z_auth_session_id = str(uuid.uuid4())
+                self.logger.log_authentication(
+                    AuthenticationPhase.INITIATED,
+                    peer_id=self.zsp_id,
+                    extra={
+                        "auth_session_id": self.d2z_auth_session_id,
+                        "flow": "D2Z",
+                        "protocol_step": "D2Z_INITIATED",
+                        "peer_zsp_id": self.zsp_id,
+                        "peer_uav_id": self.id,
+                    },
+                )
                 self._safe_schedule(0.5, self.D2Z_InitiateAuth)
 
         self._safe_execute("on_connected", logic)

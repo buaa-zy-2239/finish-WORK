@@ -66,10 +66,12 @@ class SimulationService:
             )
             
             # 调用 Python 脚本运行仿真
-            script_path = Path(__file__).parent.parent.parent / "Simulator" / "simulator_builder.py"
+            uav_root = Path(__file__).resolve().parent.parent.parent
+            script_path = uav_root / "Simulator" / "simulator_builder.py"
             
             result = subprocess.run(
                 ["python3", str(script_path)],
+                cwd=str(uav_root),
                 env={**os.environ, "CONFIG_FILE": config_file},
                 capture_output=True,
                 text=True,

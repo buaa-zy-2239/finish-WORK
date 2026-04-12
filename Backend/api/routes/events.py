@@ -27,6 +27,7 @@ async def get_events(
     uav_id: Optional[int] = Query(None, description="按UAV ID过滤"),
     zsp_id: Optional[int] = Query(None, description="按ZSP ID过滤"),
     phase: Optional[str] = Query(None, description="按认证阶段过滤"),
+    task_id: Optional[str] = Query(None, description="仿真任务 ID"),
 ) -> dict:
     """
     获取D2Z认证事件列表（支持分页和过滤）
@@ -42,7 +43,7 @@ async def get_events(
         dict: 包含分页信息和事件列表
     """
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = all_events
         
@@ -69,7 +70,8 @@ async def get_events(
             "filters": {
                 "uav_id": uav_id,
                 "zsp_id": zsp_id,
-                "phase": phase
+                "phase": phase,
+                "task_id": task_id,
             },
             "events": paginated_events,
             "timestamp": datetime.now().isoformat()
@@ -87,10 +89,11 @@ async def count_events(
     uav_id: Optional[int] = Query(None, description="按UAV ID过滤"),
     zsp_id: Optional[int] = Query(None, description="按ZSP ID过滤"),
     phase: Optional[str] = Query(None, description="按认证阶段过滤"),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """获取事件总数（支持过滤）"""
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = all_events
         
@@ -109,7 +112,8 @@ async def count_events(
             "filters": {
                 "uav_id": uav_id,
                 "zsp_id": zsp_id,
-                "phase": phase
+                "phase": phase,
+                "task_id": task_id,
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -123,11 +127,12 @@ async def count_events(
 
 @router.get("/recent")
 async def get_recent_events(
-    limit: int = Query(50, ge=1, le=500, description="返回的最近事件数")
+    limit: int = Query(50, ge=1, le=500, description="返回的最近事件数"),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """获取最近的事件"""
     try:
-        all_events = log_service.get_events(limit=limit)
+        all_events = log_service.get_events(limit=limit, task_id=task_id)
         
         return {
             "success": True,
@@ -148,10 +153,11 @@ async def get_events_by_phase(
     phase: str,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """按认证阶段查询事件"""
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('phase') == phase]
         paginated_events = filtered_events[offset:offset + limit]
@@ -181,10 +187,11 @@ async def get_events_by_uav(
     uav_id: int,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """按UAV ID查询事件"""
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('uav_id') == uav_id]
         paginated_events = filtered_events[offset:offset + limit]
@@ -214,10 +221,11 @@ async def get_events_by_zsp(
     zsp_id: int,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """按ZSP ID查询事件"""
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('zsp_id') == zsp_id]
         paginated_events = filtered_events[offset:offset + limit]
@@ -243,10 +251,10 @@ async def get_events_by_zsp(
 
 
 @router.get("/statistics")
-async def get_event_statistics() -> dict:
+async def get_event_statistics(task_id: Optional[str] = Query(None)) -> dict:
     """获取事件统计信息"""
     try:
-        all_events = log_service.get_events(limit=10000)
+        all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         if not all_events:
             return {

@@ -275,6 +275,17 @@ class LogManager:
 _global_log_manager: Optional[LogManager] = None
 
 
+def reset_log_manager() -> None:
+    """关闭并丢弃全局日志管理器，便于每次仿真任务使用独立目录与 sim_id。"""
+    global _global_log_manager
+    if _global_log_manager is not None:
+        try:
+            _global_log_manager.close()
+        except Exception:
+            pass
+        _global_log_manager = None
+
+
 def get_log_manager(log_dir: str = "/home/zhang/UAV/logs",
                    sim_id: Optional[int] = None) -> LogManager:
     """获取全局日志管理器（单例模式）"""

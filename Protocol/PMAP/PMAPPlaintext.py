@@ -28,6 +28,10 @@ class PMAPPlaintext:
     # PID | ZSP_ID | Ns | Ni | Response
     M4 = struct.Struct(">32sIddd")
 
+    # D2Z ACK（密文用当前 CRP 加密）：旧 PID | 新 PID | challenge | response
+    # 明文含轮换前后 PID，机端可与 pending/self.pid 绑定，避免仅依赖报文头 PID。
+    D2Z_ACK = struct.Struct(">32s32sdd")
+
     # =========================================================
     # D2D STRUCTURES
     # =========================================================
@@ -88,9 +92,13 @@ class PMAPPlaintext:
 
 
     @staticmethod
-    def bytes_to_pid(pid_bytes: bytes):
-
-        return pid_bytes.hex()
+    def bytes_to_pid(pid_field):
+        """decode() 已将 32 字节 PID 转为 hex 字符串；此处同时兼容原始 bytes。"""
+        if isinstance(pid_field, str):
+            return pid_field
+        if isinstance(pid_field, (bytes, bytearray)):
+            return bytes(pid_field).hex()
+        raise TypeError(f"PID field must be str or bytes, got {type(pid_field)}")
 
 
     # =========================================================

@@ -1,9 +1,17 @@
 import struct
 import hashlib
 
+from Protocol.PMAP.PMAPPlaintext import PMAPPlaintext
+
+
 class PMAPPacket:
 
     HEADER_STRUCT = struct.Struct(">B32s")
+
+    @staticmethod
+    def d2z_ack_wire_len() -> int:
+        """D2Z_ACK 单帧线长：头 + 密文(与 D2Z_ACK 明文等长) + MAC。"""
+        return PMAPPacket.HEADER_STRUCT.size + PMAPPlaintext.D2Z_ACK.size + 32
 
     @staticmethod
     def build(msg_type, pid_hex, payload_bytes, mac_input):

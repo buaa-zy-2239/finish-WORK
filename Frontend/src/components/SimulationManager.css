@@ -191,10 +191,49 @@
   background: #f8f9fa;
 }
 
+.task-id-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.task-id-cell .task-id {
+  min-width: 0;
+}
+
 .task-id {
   font-family: monospace;
   font-size: 0.9em;
   color: #667eea;
+}
+
+.copy-task-id-btn {
+  padding: 4px 10px;
+  font-size: 0.8em;
+  font-weight: 600;
+  border: 1px solid #667eea;
+  background: #fff;
+  color: #667eea;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.copy-task-id-btn:hover {
+  background: #f0f4ff;
+}
+
+.copy-task-id-btn.copy-task-id-btn--done {
+  border-color: #388e3c;
+  color: #388e3c;
+  background: #e8f5e9;
+}
+
+.copy-task-id-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .time {

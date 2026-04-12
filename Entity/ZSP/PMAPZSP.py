@@ -1,10 +1,12 @@
 import struct
 import random
 import hashlib
+from typing import Optional
 
 from Common.logging_framework import (
     AuthenticationPhase, DatabaseOperation, IdentifierOperation
 )
+from Common.crp_chain_codec import canonicalize_crp_pair
 from Entity.ZSP.BaseZSP import BaseZSP
 from Caculator.ChaoticMap import ChaoticMap
 from Caculator.Hash import hash_256
@@ -33,9 +35,20 @@ class D2D_Session:
 
 class PMAP_ZSP(BaseZSP):
 
-    def __init__(self, node, zsp_id, blockchain=None, enable_blockchain=True):
+    def __init__(
+        self,
+        node,
+        zsp_id,
+        blockchain=None,
+        enable_blockchain=True,
+        attack_model=None,
+        d2z_ack_mode: bool = False,
+    ):
 
         super().__init__(node, zsp_id, blockchain, enable_blockchain)
+
+        self.attack_model = attack_model if attack_model is not None else {}
+        self.d2z_ack_mode = bool(d2z_ack_mode)
 
         self.chaotic = ChaoticMap()
 
@@ -43,6 +56,59 @@ class PMAP_ZSP(BaseZSP):
         self.D2D_sessions = {}
 
         self.crp = [None, None]
+
+        # 去同步：每 UAV 仅消耗一次「丢 M3/M4」与一次「拦 D2Z_ACK」（见 desync_attack_first_auth_only）
+        self._desync_m3m4_drop_uavs = set()
+        self._desync_ack_suppress_uavs = set()
+        self._desync_m3m4_anonymous_drop_used = False
+        self._desync_ack_anonymous_suppress_used = False
+
+    def _desync_first_auth_only(self) -> bool:
+        return bool(self.attack_model.get("desync_attack_first_auth_only", False))
+
+    def _consume_m3m4_drop_desync(self, pid: str) -> bool:
+        """若本包应按去同步模型丢弃，返回 True。"""
+        if not self.attack_model.get("intercept_m3_m4_delivery"):
+            return False
+        if not self._desync_first_auth_only():
+            return True
+        uid = self.uav_db.get(pid, {}).get("uav_id")
+        if uid is None:
+            if self._desync_m3m4_anonymous_drop_used:
+                return False
+            self._desync_m3m4_anonymous_drop_used = True
+            return True
+        if uid in self._desync_m3m4_drop_uavs:
+            return False
+        self._desync_m3m4_drop_uavs.add(uid)
+        return True
+
+    def _should_suppress_d2z_ack_desync(self, pid: str) -> bool:
+        """是否抑制发送 D2Z_ACK（去同步）。"""
+        if not self.attack_model.get("intercept_d2z_ack_send"):
+            return False
+        if not self._desync_first_auth_only():
+            return True
+        uid = self.uav_db.get(pid, {}).get("uav_id")
+        if uid is None:
+            if self._desync_ack_anonymous_suppress_used:
+                return False
+            self._desync_ack_anonymous_suppress_used = True
+            return True
+        if uid in self._desync_ack_suppress_uavs:
+            return False
+        self._desync_ack_suppress_uavs.add(uid)
+        return True
+
+    def _d2z_ctx(self, pid: Optional[str] = None) -> dict:
+        uav_id = None
+        if pid and pid in self.uav_db:
+            uav_id = self.uav_db[pid].get("uav_id")
+        return {
+            "flow": "D2Z",
+            "peer_zsp_id": self.zsp_id,
+            "peer_uav_id": uav_id,
+        }
 
     # =========================================================
     # MAC
@@ -60,48 +126,67 @@ class PMAP_ZSP(BaseZSP):
     # =========================================================
 
     def ProcessRequest(self, buf, from_addr):
-        msg_type,pid,payload, mac = PMAPPacket.parse(buf)
+        wire_len = len(buf)
+        msg_type, pid, payload, mac = PMAPPacket.parse(buf)
 
         if msg_type == PMAPMessageType.M1:
-            self.handle_M1(pid,payload, mac, from_addr)
+            self.handle_M1(pid, payload, mac, from_addr, wire_len)
 
         elif msg_type == PMAPMessageType.M3_4:
-            self.handle_M3_4(pid,payload, mac, from_addr)
+            if self._consume_m3m4_drop_desync(pid):
+                ctx = self._d2z_ctx(pid)
+                self.logger.log_warning(
+                    "attack: M3/M4 dropped at ZSP (channel intercept model)",
+                    warning_type="attack_intercept_m3_m4",
+                    extra={
+                        **ctx,
+                        "protocol_step": "D2Z_M3_M4_INTERCEPTED",
+                        "wire_len": wire_len,
+                    },
+                )
+                return
+            self.handle_M3_4(pid, payload, mac, from_addr, wire_len)
 
         elif msg_type == PMAPMessageType.D2D_M1_2:
-            self.handle_D2D_M1_2(pid,payload, mac, from_addr)
+            self.handle_D2D_M1_2(pid, payload, mac, from_addr)
 
         elif msg_type == PMAPMessageType.D2D_M4_5:
-            self.handle_D2D_M4_5(pid,payload, mac, from_addr)
+            self.handle_D2D_M4_5(pid, payload, mac, from_addr)
         elif msg_type == PMAPMessageType.D2D_M9_10:
-            self.handle_D2D_M9_10(pid,payload, mac, from_addr)
+            self.handle_D2D_M9_10(pid, payload, mac, from_addr)
 
     # =========================================================
     # M1
     # =========================================================
 
-    def handle_M1(self, pid, payload, mac, from_addr):
+    def handle_M1(self, pid, payload, mac, from_addr, wire_len: int):
 
-        self.logger.log_message_received("M1", len(payload))
-        
+        ctx = self._d2z_ctx(pid)
+        self.logger.log_message_received(
+            "M1",
+            wire_len,
+            extra={**ctx, "protocol_step": "D2Z_M1_RECV"},
+        )
+
         if pid not in self.uav_db:
-            # ⭐ 认证失败
             self.logger.log_authentication(
                 AuthenticationPhase.FAILED,
                 success=False,
-                peer_id=None
+                peer_id=None,
+                extra={**ctx, "protocol_step": "D2Z_M1_FAIL_UNKNOWN_PID"},
             )
             return
 
         crp = self.uav_db[pid]["crp"]
         decrypted = self.chaotic.decrypt_by_crp(payload, crp)
-        m1 = PMAP.decode(PMAP.M1,decrypted)
+        m1 = PMAP.decode(PMAP.M1, decrypted)
         ni = m1[2]
         if not self.verify_mac(payload, [struct.pack(">d", ni)], mac):
             self.logger.log_authentication(
                 AuthenticationPhase.FAILED,
                 success=False,
-                peer_id=None
+                peer_id=self.uav_db[pid].get("uav_id"),
+                extra={**ctx, "protocol_step": "D2Z_M1_FAIL_MAC"},
             )
             return
 
@@ -128,22 +213,31 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, from_addr)
-        self.logger.log_message_sent("M2", len(packet))
+        self.logger.log_message_sent(
+            "M2",
+            len(packet),
+            extra={**self._d2z_ctx(pid), "protocol_step": "D2Z_M2_SEND"},
+        )
 
     # =========================================================
     # M3
     # =========================================================
 
-    def handle_M3_4(self, pid, payload, mac, from_addr):
+    def handle_M3_4(self, pid, payload, mac, from_addr, wire_len: int):
 
-        self.logger.log_message_received("M2", len(payload))
-        
+        ctx = self._d2z_ctx(pid)
+        self.logger.log_message_received(
+            "M3_M4",
+            wire_len,
+            extra={**ctx, "protocol_step": "D2Z_M3_M4_RECV"},
+        )
+
         if pid not in self.uav_db:
-            # ⭐ 认证失败
             self.logger.log_authentication(
                 AuthenticationPhase.FAILED,
                 success=False,
-                peer_id=None
+                peer_id=None,
+                extra={**ctx, "protocol_step": "D2Z_M3_M4_FAIL_UNKNOWN_PID"},
             )
             return
 
@@ -172,38 +266,85 @@ class PMAP_ZSP(BaseZSP):
             self.logger.log_authentication(
                 AuthenticationPhase.FAILED,
                 success=False,
-                peer_id=None
+                peer_id=self.uav_db[pid].get("uav_id"),
+                extra={**ctx, "protocol_step": "D2Z_M3_M4_FAIL_MAC"},
             )
             return
+
         seed = self.chaotic.encrypt_by_crp(str(session.ni).encode() + str(session.ns).encode(), crp)
         challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
+        challenge, response = canonicalize_crp_pair(challenge, response)
         new_pid = hash_256(str(self.uav_db[pid]["uav_id"]) + str(response))
-        self.UpdateUAVPID(pid, new_pid, challenge, response)
-        self.uav_db[new_pid]["crp"] = [challenge, response]
-        self.D2Z_sessions[new_pid] = self.D2Z_sessions.pop(pid)
-        # ⭐ 记录会话建立
-        import hashlib
+
+        if not self.d2z_ack_mode:
+            self._d2z_finalize_commit(
+                pid, new_pid, challenge, response, session_key, ctx, session, old_crp=crp
+            )
+            return
+
+        plain_ack = PMAP.encode(PMAP.D2Z_ACK, pid, new_pid, challenge, response)
+        enc_ack = self.chaotic.encrypt_by_crp(plain_ack, crp)
+        mac_input = enc_ack + struct.pack(">d", ni) + struct.pack(">d", response)
+        ack_packet = PMAPPacket.build(
+            PMAPMessageType.D2Z_ACK,
+            pid,
+            enc_ack,
+            mac_input,
+        )
+
+        if self._should_suppress_d2z_ack_desync(pid):
+            self.logger.log_warning(
+                "attack: D2Z ACK not sent after M3/M4 (session redundancy test)",
+                warning_type="attack_desync",
+                extra={**ctx, "protocol_step": "D2Z_ACK_SUPPRESSED"},
+            )
+            return
+
+        self.SendResponse(ack_packet, session.from_addr)
+        self.logger.log_message_sent(
+            "D2Z_ACK",
+            len(ack_packet),
+            extra={**ctx, "protocol_step": "D2Z_ACK_SEND"},
+        )
+        self._d2z_finalize_commit(
+            pid, new_pid, challenge, response, session_key, ctx, session, old_crp=crp
+        )
+
+    def _d2z_finalize_commit(
+        self,
+        old_pid: str,
+        new_pid: str,
+        challenge: float,
+        response: float,
+        session_key: int,
+        ctx: dict,
+        session: D2Z_Session,
+        old_crp,
+    ) -> None:
+        self.UpdateUAVPID(old_pid, new_pid, challenge, response)
+        self.D2Z_sessions[new_pid] = self.D2Z_sessions.pop(old_pid)
         key_hash = hex(session_key)[2:]
         self.logger.log_session_established(
             session_id=new_pid,
-            session_key_hash=key_hash
+            session_key_hash=key_hash,
+            peer_id=self.uav_db[new_pid].get("uav_id"),
+            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SESSION_KEY"},
         )
-        
-        # ⭐ 记录认证成功
+
         self.logger.log_authentication(
             AuthenticationPhase.SUCCESS,
             success=True,
-            peer_id=None
+            peer_id=self.uav_db[new_pid].get("uav_id"),
+            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SUCCESS"},
         )
-        
-        # ⭐ 记录PID轮换
+
         self.logger.log_pid_rotation(
-            old_pid=pid,
+            old_pid=old_pid,
             new_pid=new_pid,
-            old_crp=crp,
-            new_crp=[challenge, response]
+            old_crp=old_crp,
+            new_crp=self.uav_db[new_pid]["crp"],
         )
-        
+
     # =========================================================
     # D2D M1_2
     # =========================================================
@@ -268,7 +409,11 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, from_addr)
-        self.logger.message_sent("D2D_M3",len(packet))
+        self.logger.log_message_sent(
+            "D2D_M3",
+            len(packet),
+            extra={"flow": "D2D", "peer_uav_id": self.uav_db[pid].get("uav_id"), "peer_zsp_id": self.zsp_id},
+        )
         
 
     # =========================================================
@@ -348,14 +493,19 @@ class PMAP_ZSP(BaseZSP):
         )
 
         self.SendResponse(packet, session.to_addr)
-        self.logger.message_sent("M6/7/8", len(packet))
+        self.logger.log_message_sent(
+            "D2D_M6_7_8",
+            len(packet),
+            extra={"flow": "D2D", "peer_uav_id": self.uav_db[pid].get("uav_id"), "peer_zsp_id": self.zsp_id},
+        )
 
         seed = self.chaotic.encrypt_by_crp(
                 str(session.n1).encode() + str(session.ni).encode(),
                 self.uav_db[pid]["crp"]
         )
         challenge = int(hash_256(seed.hex())[:13], 16) / (16 ** 13)
-        self.crp = [challenge,response]
+        challenge, response = canonicalize_crp_pair(challenge, response)
+        self.crp = [challenge, response]
 
 
     # =========================================================

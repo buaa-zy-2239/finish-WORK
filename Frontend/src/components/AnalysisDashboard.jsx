@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './AnalysisDashboard.css';
 
@@ -12,31 +12,26 @@ export const AnalysisDashboard = () => {
   const [timeline, setTimeline] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [taskId, setTaskId] = useState('');
 
-  useEffect(() => {
-    loadAllData();
-    const interval = setInterval(loadAllData, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const t = taskId.trim();
+    const qp = t ? { task_id: t } : {};
     try {
       const results = await Promise.allSettled([
-        axios.get(`${API_BASE}/metrics/summary`),
-        axios.get(`${API_BASE}/analysis/sessions`),
-        axios.get(`${API_BASE}/analysis/events?limit=50`)
+        axios.get(`${API_BASE}/metrics/summary`, { params: qp }),
+        axios.get(`${API_BASE}/analysis/sessions`, { params: qp }),
+        axios.get(`${API_BASE}/analysis/events`, { params: { limit: 80, ...qp } }),
       ]);
 
-      // 处理metrics
       if (results[0].status === 'fulfilled') {
         setMetrics(results[0].value.data.metrics);
       } else {
         console.error('Failed to load metrics:', results[0].reason);
       }
 
-      // 处理sessions
       if (results[1].status === 'fulfilled') {
         setSessions(results[1].value.data.sessions || []);
       } else {
@@ -44,50 +39,71 @@ export const AnalysisDashboard = () => {
         setSessions([]);
       }
 
-      // 处理events
       if (results[2].status === 'fulfilled') {
         setEvents(results[2].value.data.events || []);
       } else {
         console.error('Failed to load events:', results[2].reason);
         setEvents([]);
       }
-    } catch (error) {
-      console.error('Failed to load data:', error);
+    } catch (err) {
+      console.error('Failed to load data:', err);
       setError('加载数据失败，请稍后重试');
     } finally {
       setLoading(false);
     }
-  };
+  }, [taskId]);
+
+  useEffect(() => {
+    loadAllData();
+    const interval = setInterval(loadAllData, 5000);
+    return () => clearInterval(interval);
+  }, [loadAllData]);
 
   const handleViewSessionTimeline = async (session) => {
     try {
+      const sid = session.session_id || session.auth_session_id;
+      const tid = taskId.trim();
+      const qp = tid ? { task_id: tid } : {};
       const response = await axios.get(
-        `${API_BASE}/analysis/sessions/${session.uav_id}/${session.zsp_id}/timeline`
+        `${API_BASE}/analysis/sessions/${session.uav_id}/${session.zsp_id}/timeline`,
+        { params: { ...qp, ...(sid ? { session_id: sid } : {}) } }
       );
       setSelectedSession(session);
       setTimeline(response.data.timeline || []);
-    } catch (error) {
-      console.error('Failed to load timeline:', error);
-      alert('加载时间线失败：' + (error.response?.data?.detail || error.message));
+    } catch (err) {
+      console.error('Failed to load timeline:', err);
+      alert('加载时间线失败：' + (err.response?.data?.detail || err.message));
     }
   };
 
   const formatNumber = (num) => {
-    if (typeof num !== 'number') return num;
+    if (typeof num !== 'number' || Number.isNaN(num)) return num;
     return num.toFixed(2);
   };
 
   return (
     <div className="analysis-dashboard">
-      {error && (
-        <div className="error-banner">
-          ⚠️ {error}
-        </div>
-      )}
+      {error && <div className="error-banner">{error}</div>}
 
-      {/* 指标卡 */}
+      <div className="metrics-section task-filter">
+        <h2>分析数据源</h2>
+        <div className="task-id-row">
+          <label htmlFor="task-id-input">任务 ID（可选，填写后读取该任务 logs 目录）：</label>
+          <input
+            id="task-id-input"
+            type="text"
+            value={taskId}
+            onChange={(e) => setTaskId(e.target.value)}
+            placeholder="例如 sim_20260411_173856"
+          />
+          <button type="button" className="refresh-btn" onClick={loadAllData} disabled={loading}>
+            {loading ? '加载中...' : '应用'}
+          </button>
+        </div>
+      </div>
+
       <div className="metrics-section">
-        <h2>🔍 认证协议性能指标</h2>
+        <h2>认证协议性能指标</h2>
         {metrics ? (
           <div className="metrics-grid">
             <div className="metric-card">
@@ -111,18 +127,30 @@ export const AnalysisDashboard = () => {
             </div>
 
             <div className="metric-card">
-              <h3>消息统计</h3>
+              <h3>消息与通信效率</h3>
               <div className="metric-item">
                 <span className="label">总消息数：</span>
                 <span className="value">{metrics.messaging?.total_messages || 0}</span>
               </div>
               <div className="metric-item">
-                <span className="label">平均大小：</span>
+                <span className="label">平均消息大小：</span>
                 <span className="value">{formatNumber(metrics.messaging?.avg_size_bytes)} bytes</span>
               </div>
               <div className="metric-item">
-                <span className="label">总字节：</span>
+                <span className="label">总会话字节（估算）：</span>
                 <span className="value">{metrics.messaging?.total_bytes || 0} bytes</span>
+              </div>
+              <div className="metric-item">
+                <span className="label">每成功会话平均字节：</span>
+                <span className="value">
+                  {formatNumber(metrics.messaging?.avg_bytes_per_successful_session)} bytes
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">每成功会话平均消息数：</span>
+                <span className="value">
+                  {formatNumber(metrics.messaging?.avg_messages_per_successful_session)}
+                </span>
               </div>
             </div>
 
@@ -145,70 +173,69 @@ export const AnalysisDashboard = () => {
             <div className="metric-card">
               <h3>错误统计</h3>
               <div className="metric-item">
-                <span className="label">总错误数：</span>
+                <span className="label">失败会话数：</span>
                 <span className="value error">{metrics.errors?.total || 0}</span>
               </div>
               <div className="metric-item">
-                <span className="label">M1 错误：</span>
+                <span className="label">M1 相关：</span>
                 <span className="value">{metrics.errors?.M1_errors || 0}</span>
               </div>
               <div className="metric-item">
-                <span className="label">M2 错误：</span>
+                <span className="label">M2 相关：</span>
                 <span className="value">{metrics.errors?.M2_errors || 0}</span>
               </div>
             </div>
           </div>
         ) : (
-          <div className="loading-placeholder">
-            {loading ? '加载中...' : '暂无数据'}
-          </div>
+          <div className="loading-placeholder">{loading ? '加载中...' : '暂无数据'}</div>
         )}
       </div>
 
-      {/* 会话列表 */}
       <div className="sessions-section">
-        <h2>📋 认证会话列表</h2>
+        <h2>认证会话列表</h2>
         <button onClick={loadAllData} className="refresh-btn" disabled={loading}>
-          🔄 {loading ? '加载中...' : '刷新数据'}
+          {loading ? '加载中...' : '刷新数据'}
         </button>
 
         {sessions.length === 0 ? (
           <div className="empty-state">
-            <p>📭 暂无会话数据</p>
-            <small>执行仿真后将显示认证会话信息</small>
+            <p>暂无会话数据</p>
+            <small>运行仿真后填写任务 ID 或查看默认日志目录</small>
           </div>
         ) : (
           <table className="sessions-table">
             <thead>
               <tr>
-                <th>UAV ID</th>
-                <th>ZSP ID</th>
+                <th>会话 ID</th>
+                <th>UAV</th>
+                <th>ZSP</th>
                 <th>状态</th>
                 <th>耗时 (s)</th>
                 <th>消息数</th>
-                <th>通信量 (bytes)</th>
+                <th>字节</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {sessions.map((session, idx) => (
-                <tr key={idx} className={session.success ? 'success-row' : 'error-row'}>
+                <tr key={session.session_id || idx} className={session.success ? 'success-row' : 'error-row'}>
+                  <td className="session-id-cell" title={session.session_id}>
+                    {(session.session_id || '').slice(0, 12)}
+                    {(session.session_id || '').length > 12 ? '…' : ''}
+                  </td>
                   <td>{session.uav_id}</td>
                   <td>{session.zsp_id}</td>
                   <td>
                     <span className={`status-badge ${session.success ? 'success' : 'error'}`}>
-                      {session.success ? '✓ 成功' : '✗ 失败'}
+                      {session.success ? '成功' : '失败'}
                     </span>
                   </td>
                   <td>{formatNumber(session.duration_seconds)}</td>
                   <td>{session.message_count}</td>
-                  <td>{(session.message_sizes.M1 || 0) + (session.message_sizes.M2 || 0) + (session.message_sizes.M3_M4 || 0)}</td>
+                  <td>{session.total_bytes ?? 0}</td>
                   <td>
-                    <button
-                      onClick={() => handleViewSessionTimeline(session)}
-                      className="timeline-btn"
-                    >
-                      📊 时间线
+                    <button onClick={() => handleViewSessionTimeline(session)} className="timeline-btn">
+                      时间线
                     </button>
                   </td>
                 </tr>
@@ -218,10 +245,12 @@ export const AnalysisDashboard = () => {
         )}
       </div>
 
-      {/* 时间线 */}
       {selectedSession && (
         <div className="timeline-section">
-          <h2>📈 会话时间线 - UAV{selectedSession.uav_id} → ZSP{selectedSession.zsp_id}</h2>
+          <h2>
+            会话时间线 — UAV {selectedSession.uav_id} → ZSP {selectedSession.zsp_id}
+            {selectedSession.session_id ? ` (${selectedSession.session_id.slice(0, 8)}…)` : ''}
+          </h2>
           {timeline.length === 0 ? (
             <div className="empty-state">
               <p>暂无时间线数据</p>
@@ -230,13 +259,21 @@ export const AnalysisDashboard = () => {
             <div className="timeline">
               {timeline.map((event, idx) => (
                 <div key={idx} className="timeline-event">
-                  <div className="timeline-time">
-                    {event.sim_time.toFixed(4)}s
-                  </div>
+                  <div className="timeline-time">{Number(event.sim_time).toFixed(4)}s</div>
                   <div className={`timeline-content phase-${event.phase}`}>
                     <strong>{event.phase}</strong>
+                    {event.protocol_step && (
+                      <span className="msg-type" title="protocol_step">
+                        {event.protocol_step}
+                      </span>
+                    )}
                     {event.message_type && <span className="msg-type">{event.message_type}</span>}
-                    {event.payload_size && <span className="msg-size">{event.payload_size}B</span>}
+                    {event.payload_size ? <span className="msg-size">{event.payload_size}B</span> : null}
+                    {event.auth_session_id && (
+                      <span className="msg-size" title={event.auth_session_id}>
+                        sid…
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -245,22 +282,21 @@ export const AnalysisDashboard = () => {
         </div>
       )}
 
-      {/* 最新事件 */}
       <div className="events-section">
-        <h2>🔔 最新事件</h2>
+        <h2>最新事件</h2>
         {events.length === 0 ? (
           <div className="empty-state">
-            <p>📭 暂无事件</p>
-            <small>执行仿真后将显示事件信息</small>
+            <p>暂无事件</p>
           </div>
         ) : (
           <div className="events-list">
             {events.slice(0, 20).map((event, idx) => (
               <div key={idx} className="event-item">
-                <span className="event-time">{event.sim_time.toFixed(4)}s</span>
+                <span className="event-time">{Number(event.sim_time).toFixed(4)}s</span>
                 <span className="event-type">{event.phase}</span>
                 <span className="event-detail">
                   UAV{event.uav_id} → ZSP{event.zsp_id}
+                  {event.protocol_step ? ` · ${event.protocol_step}` : ''}
                 </span>
               </div>
             ))}

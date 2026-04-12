@@ -7,6 +7,7 @@ import json
 from Common.logging_framework import (
     ZSPLogger, DatabaseOperation, AuthenticationPhase, IdentifierOperation
 )
+from Common.crp_chain_codec import canonicalize_crp_pair
 from Entity.UAV.BaseUAV import BaseUAV
 
 
@@ -225,18 +226,21 @@ class BaseZSP(ns.Application):
                 old_pid = e["old_pid"]
                 new_pid = e["new_pid"]
 
+                challenge, response = canonicalize_crp_pair(
+                    float(e["challenge"]), float(e["response"])
+                )
+
                 if old_pid not in self.uav_db:
+                    if new_pid in self.uav_db:
+                        self.uav_db[new_pid]["crp"] = [challenge, response]
                     continue
 
                 old_crp = self.uav_db[old_pid].get("crp", ["?", "?"])
 
-                challenge = e["challenge"]
-                response = e["response"]
-
                 self.logger.log_pid_rotation(
                     old_pid, new_pid,
                     old_crp=old_crp,
-                    new_crp=[challenge, response]
+                    new_crp=[challenge, response],
                 )
 
                 self._handle_pid_update(old_pid, new_pid)
@@ -299,6 +303,7 @@ class BaseZSP(ns.Application):
     def UpdateUAVPID(self, old_pid, new_pid, new_challenge, new_response):
 
         def logic():
+            nc, nr = canonicalize_crp_pair(float(new_challenge), float(new_response))
 
             if old_pid in self.uav_db:
 
@@ -306,16 +311,17 @@ class BaseZSP(ns.Application):
                 info["pid"] = new_pid
 
                 self.uav_db[new_pid] = info
+                self.uav_db[new_pid]["crp"] = [nc, nr]
 
             self.logger.log_pid_rotation(
                     old_pid, new_pid,
-                    new_crp=[new_challenge, new_response]
+                    new_crp=[nc, nr],
                 )
 
             if self.enable_blockchain and self.blockchain:
                 self.blockchain.update_pid(
                     old_pid, new_pid,
-                    new_challenge, new_response
+                    nc, nr,
                 )
 
         self._safe_execute("UpdateUAVPID", logic)

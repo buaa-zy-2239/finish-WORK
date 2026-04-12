@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from datetime import datetime
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Dict, Any
 import asyncio
@@ -33,11 +34,14 @@ async def create_simulation_task(task_data: dict) -> dict:
         dict: 创建的任务信息
     """
     try:
-        task_id = f"sim_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # 秒级时间戳在快速连点/自动化下会碰撞，追加短 uuid 保证目录唯一
+        task_id = f"sim_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         task_dir = Path(config.SIMULATION_TASKS_DIR) / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
         
         config_file = task_dir / "config.json"
+        _protocol_raw = (task_data.get("protocol") or "PMAP").strip().upper()
+        _protocol = _protocol_raw if _protocol_raw in ("PMAP", "PMAP_ACK") else "PMAP"
         config_data = {
             "task_id": task_id,
             "name": task_data.get("name", "Unnamed Task"),
@@ -48,8 +52,11 @@ async def create_simulation_task(task_data: dict) -> dict:
             "simulation": {
                 "duration": task_data.get("duration", 30)
             },
-            "protocol": task_data.get("protocol", "PMAP"),
-            "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"})
+            "protocol": _protocol,
+            "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
+            "scenario": task_data.get("scenario"),
+            "security_profile": task_data.get("security_profile") or {},
+            "attack_model": task_data.get("attack_model"),
         }
         
         with open(config_file, 'w') as f:
@@ -200,7 +207,11 @@ async def _run_simulation_background(task_id: str, config_file: str):
         
         print(f"\n[SIMULATION] ========== Starting simulation {task_id} ==========")
         print(f"[SIMULATION] Config file: {config_file}")
-        print(f"[SIMULATION] Log directory: {config.get_log_dir()}")
+
+        task_dir = Path(task.get("task_dir", ""))
+        log_subdir = task_dir / "logs"
+        log_subdir.mkdir(parents=True, exist_ok=True)
+        print(f"[SIMULATION] Log directory: {log_subdir}")
         
         try:
             # 获取ns3命令
@@ -225,6 +236,8 @@ async def _run_simulation_background(task_id: str, config_file: str):
             # 设置环境变量
             env = os.environ.copy()
             env["CONFIG_FILE"] = config_file
+            env["SIM_LOG_DIR"] = str(log_subdir)
+            env["SIM_ID"] = str(abs(hash(task_id)) % (10**9))
             
             task["progress"] = 5
             
@@ -258,7 +271,7 @@ async def _run_simulation_background(task_id: str, config_file: str):
                 # 重新加载日志
                 try:
                     from services.log_service import log_service
-                    log_service.load_logs(force_reload=True)
+                    log_service.load_logs(force_reload=True, task_id=task_id)
                     print(f"[SIMULATION] ✓ Logs reloaded: {len(log_service.events)} events found")
                 except Exception as e:
                     print(f"[SIMULATION] ⚠ Warning: Failed to reload logs: {e}")

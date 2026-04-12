@@ -81,4 +81,4 @@ class ChaoticMap():
             x=new_x
             y=new_y
 
-        return unshuffled_bytes
+        return bytes(unshuffled_bytes)

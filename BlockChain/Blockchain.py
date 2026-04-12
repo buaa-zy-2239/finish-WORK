@@ -4,6 +4,8 @@ import json
 import os
 import threading
 
+from Common.crp_chain_codec import crp_to_uint, uint_to_crp
+
 
 class Web3BlockchainAdapter:
 
@@ -145,17 +147,11 @@ class Web3BlockchainAdapter:
 
         return str(value)
 
-    # CRP float -> uint256
     def _crp_to_uint(self, value: float):
+        return crp_to_uint(value)
 
-        SCALE = 10**12
-        return int(value * SCALE)
-
-    # uint256 -> float
     def _uint_to_crp(self, value: int):
-
-        SCALE = 10**12
-        return value / SCALE
+        return uint_to_crp(value)
 
     # ==================================================
     # UAV 注册

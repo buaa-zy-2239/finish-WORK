@@ -31,9 +31,9 @@ class Config:
     # 仿真任务目录
     SIMULATION_TASKS_DIR = os.path.expanduser("~/UAV_Simulation/tasks")
     
-    # NS-3 仿真器相关配置
-    NS3_INSTALL_PATH = os.path.expanduser("~/ns/ns-allinone-3.43/ns-3.43")
-    NS3_COMMAND = os.path.expanduser("~/ns/ns-allinone-3.43/ns-3.43/ns3")
+    # NS-3 仿真器相关配置（与本地 ns3 可执行文件一致）
+    NS3_INSTALL_PATH = "/home/zhang/ns/ns-allinone-3.43/ns-3.43"
+    NS3_COMMAND = "/home/zhang/ns/ns-allinone-3.43/ns-3.43/ns3"
     SIMULATOR_SCRIPT = "/home/zhang/UAV/simulator_builder.py"
     
     # API 配置

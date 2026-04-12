@@ -20,10 +20,10 @@ def set_log_service(service):
 
 
 @router.get("/summary")
-async def get_metrics_summary() -> dict:
+async def get_metrics_summary(task_id: Optional[str] = Query(None)) -> dict:
     """获取D2Z协议性能指标摘要"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         
         return {
             "success": True,
@@ -39,10 +39,10 @@ async def get_metrics_summary() -> dict:
 
 
 @router.get("/authentication")
-async def get_authentication_metrics() -> dict:
+async def get_authentication_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取认证相关指标"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         auth_metrics = metrics.get("authentication", {})
         
         return {
@@ -65,10 +65,10 @@ async def get_authentication_metrics() -> dict:
 
 
 @router.get("/messaging")
-async def get_messaging_metrics() -> dict:
+async def get_messaging_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取消息相关指标"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         msg_metrics = metrics.get("messaging", {})
         
         return {
@@ -77,7 +77,9 @@ async def get_messaging_metrics() -> dict:
                 "total_messages": msg_metrics.get("total_messages", 0),
                 "average_message_size_bytes": msg_metrics.get("avg_size_bytes", 0.0),
                 "total_bytes_transmitted": msg_metrics.get("total_bytes", 0),
-                "total_kilobytes": msg_metrics.get("total_bytes", 0) / 1024
+                "total_kilobytes": msg_metrics.get("total_bytes", 0) / 1024,
+                "avg_bytes_per_successful_session": msg_metrics.get("avg_bytes_per_successful_session", 0.0),
+                "avg_messages_per_successful_session": msg_metrics.get("avg_messages_per_successful_session", 0.0),
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -90,10 +92,10 @@ async def get_messaging_metrics() -> dict:
 
 
 @router.get("/timing")
-async def get_timing_metrics() -> dict:
+async def get_timing_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取时间相关指标"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         timing_metrics = metrics.get("timing", {})
         
         return {
@@ -117,10 +119,10 @@ async def get_timing_metrics() -> dict:
 
 
 @router.get("/errors")
-async def get_error_metrics() -> dict:
+async def get_error_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取错误相关指标"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         error_metrics = metrics.get("errors", {})
         
         return {
@@ -142,10 +144,10 @@ async def get_error_metrics() -> dict:
 
 
 @router.get("/performance")
-async def get_performance_metrics() -> dict:
+async def get_performance_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取综合性能指标"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         
         auth = metrics.get("authentication", {})
         msg = metrics.get("messaging", {})
@@ -158,7 +160,9 @@ async def get_performance_metrics() -> dict:
                 "communication_efficiency": {
                     "total_messages": msg.get("total_messages", 0),
                     "average_message_size_kb": msg.get("avg_size_bytes", 0) / 1024,
-                    "total_data_transmitted_kb": msg.get("total_bytes", 0) / 1024
+                    "total_data_transmitted_kb": msg.get("total_bytes", 0) / 1024,
+                    "avg_bytes_per_successful_session": msg.get("avg_bytes_per_successful_session", 0.0),
+                    "avg_messages_per_successful_session": msg.get("avg_messages_per_successful_session", 0.0),
                 },
                 "authentication_performance": {
                     "average_time_seconds": f"{timing.get('avg_duration_seconds', 0):.4f}",
@@ -179,10 +183,11 @@ async def get_performance_metrics() -> dict:
 async def get_comparison_metrics(
     metric1: str = Query("success_rate", description="第一个指标"),
     metric2: str = Query("avg_duration", description="第二个指标"),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """获取指标对比信息"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         
         return {
             "success": True,
@@ -201,10 +206,10 @@ async def get_comparison_metrics(
 
 
 @router.get("/status")
-async def get_metrics_status() -> dict:
+async def get_metrics_status(task_id: Optional[str] = Query(None)) -> dict:
     """获取指标系统状态"""
     try:
-        status = log_service.get_log_status()
+        status = log_service.get_log_status(task_id=task_id)
         
         return {
             "success": True,
@@ -227,11 +232,12 @@ async def get_metrics_status() -> dict:
 
 @router.get("/export")
 async def export_all_metrics(
-    format: str = Query("json", pattern="^(json|csv)$", description="导出格式")
+    format: str = Query("json", pattern="^(json|csv)$", description="导出格式"),
+    task_id: Optional[str] = Query(None),
 ) -> dict:
     """导出所有指标数据"""
     try:
-        metrics = log_service.get_metrics()
+        metrics = log_service.get_metrics(task_id=task_id)
         
         return {
             "success": True,
