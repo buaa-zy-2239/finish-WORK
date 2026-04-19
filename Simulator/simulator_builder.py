@@ -19,9 +19,9 @@ from ns import ns
 from Common.logging_framework import get_log_manager, reset_log_manager
 from Common.attack_model import merge_attack_model
 from Common.desync_attack_template import apply_desync_template
+from Common.protocol_registry import get_protocol_spec
+from Common.scenario_inputs import load_waypoints_from_json_file, resolve_config_relative_path
 from Mobility.mobility import MobilityFactory
-from Entity.UAV.PMAPUAV import PMAP_UAV
-from Entity.ZSP.PMAPZSP import PMAP_ZSP
 from BlockChain.Blockchain import Web3BlockchainAdapter
 import copy
 
@@ -36,12 +36,11 @@ class SimulationBuilderEnhanced:
             self.config = config_dict
         else:
             raise ValueError("Must provide config_path or config_dict")
+        self._config_dir = str(Path(config_path).resolve().parent) if config_path else None
 
-        proto = (self.config.get("protocol") or "PMAP").strip().upper()
-        if proto not in ("PMAP", "PMAP_ACK"):
-            proto = "PMAP"
-        self.protocol = proto
-        self.d2z_ack_mode = proto == "PMAP_ACK"
+        self.protocol_spec = get_protocol_spec(self.config.get("protocol"))
+        self.protocol = self.protocol_spec.name
+        self.d2z_ack_mode = bool(self.protocol_spec.builder_options.get("d2z_ack_mode", False))
 
         self.attack_model = apply_desync_template(merge_attack_model(self.config))
         self.interfaces = None
@@ -150,27 +149,102 @@ class SimulationBuilderEnhanced:
         address = ns.Ipv4AddressHelper()
         address.SetBase(ns.Ipv4Address("10.1.1.0"), ns.Ipv4Mask("255.255.255.0"))
 
-        channel = ns.CsmaHelper()
         channel_config = self.config.get("channel", {})
-        channel.SetChannelAttribute("DataRate", ns.StringValue(channel_config.get("datarate", "100Mbps")))
-        channel.SetChannelAttribute("Delay", ns.TimeValue(ns.NanoSeconds(6560)))
+        channel_type = channel_config.get("type", "CSMA")
 
-        devices = channel.Install(self.nodes)
+        if channel_type == "WiFi":
+            # 使用WiFi信道模拟无线环境 (IEEE 802.11ah for IoT/UAV)
+            self._setup_wifi_network(channel_config)
+        else:
+            # 默认CSMA (向后兼容)
+            channel = ns.CsmaHelper()
+            channel.SetChannelAttribute("DataRate", ns.StringValue(channel_config.get("datarate", "100Mbps")))
+            channel.SetChannelAttribute("Delay", ns.TimeValue(ns.NanoSeconds(6560)))
+            devices = channel.Install(self.nodes)
+            self.interfaces = address.Assign(devices)
+
+        print(f"[BUILDER] Network stack installed ({channel_type})")
+
+    def _setup_wifi_network(self, channel_config):
+        """设置WiFi网络，支持路径损耗和衰落模型 (IEEE 802.11ah)"""
+        # 使用YansWifiChannel支持PropagationLossModel
+        wifi_channel = ns.YansWifiChannelHelper.Default()
+
+        # 配置路径损耗模型: Friis + Nakagami-m (IEEE TWC标准)
+        # 1. Friis自由空间路径损耗 (近场)
+        # 2. LogDistance (远场)
+        # 3. Nakagami-m衰落 (多径效应)
+
+        loss_model = channel_config.get("loss_model", "friis_log_distance")
+
+        if loss_model == "friis_log_distance":
+            # Friis for short distance (< breakpoint), then LogDistance
+            wifi_channel.AddPropagationLoss(
+                "ns3::FriisPropagationLossModel"
+            )
+        elif loss_model == "nakagami":
+            # Nakagami-m fading (typical for UAV A2G channel)
+            # m=1 (Rayleigh), m=2-4 (Rician-like)
+            m0 = float(channel_config.get("nakagami_m0", 1.5))
+            m1 = float(channel_config.get("nakagami_m1", 0.75))
+            m2 = float(channel_config.get("nakagami_m2", 0.5))
+
+            wifi_channel.AddPropagationLoss(
+                "ns3::NakagamiPropagationLossModel",
+                "Distance1", ns.DoubleValue(50.0),  # m0 for d < 50m
+                "Distance2", ns.DoubleValue(150.0),  # m1 for 50m < d < 150m
+                "m0", ns.DoubleValue(m0),
+                "m1", ns.DoubleValue(m1),
+                "m2", ns.DoubleValue(m2),
+            )
+        elif loss_model == "range":
+            # 简单范围限制模型 (用于快速测试)
+            max_range = float(channel_config.get("max_range", 500.0))
+            wifi_channel.AddPropagationLoss(
+                "ns3::RangePropagationLossModel",
+                "MaxRange", ns.DoubleValue(max_range)
+            )
+
+        # 延迟模型
+        wifi_channel.SetPropagationDelay("ns3::ConstantSpeedPropagationDelayModel")
+
+        # WiFi PHY配置 (802.11ah - suitable for long-range IoT/UAV)
+        wifi_phy = ns.YansWifiPhyHelper()
+        wifi_phy.SetChannel(wifi_channel.Create())
+
+        # 使用802.11ah标准 (Sub-1GHz, long range, lower rate)
+        # 适合UAV通信场景
+        wifi_std = ns.WifiStandard.WIFI_STANDARD_80211ah
+        wifi_phy.Set("Standard", ns.EnumValue(wifi_std))
+
+        # 数据率配置
+        datarate = channel_config.get("datarate", "6Mbps")
+        wifi_phy.Set("DataRate", ns.StringValue(datarate))
+
+        # MAC配置 (Ad-hoc模式适合UAV自组织网络)
+        wifi_mac = ns.WifiMacHelper()
+        wifi_mac.SetType("ns3::AdhocWifiMac")
+
+        # 安装WiFi设备
+        wifi = ns.WifiHelper()
+        wifi.SetStandard(wifi_std)
+        devices = wifi.Install(wifi_phy, wifi_mac, self.nodes)
+
         self.interfaces = address.Assign(devices)
-        print("[BUILDER] Network stack installed")
 
     def _setup_zsp(self):
         for zsp_conf in self.config.get("zsps", []):
             node = self.nodes.Get(zsp_conf["id"])
             zid = int(zsp_conf["id"])
 
-            zsp = PMAP_ZSP(
+            zsp = self.protocol_spec.zsp_class(
                 node,
                 zid,
                 blockchain=self.blockchain,
                 enable_blockchain=True,
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
+                compute_profile=zsp_conf.get("compute_profile"),
             )
 
             MobilityFactory.install_constant(node, zsp_conf.get("position", [0, 0, 100]))
@@ -183,13 +257,19 @@ class SimulationBuilderEnhanced:
         for uav_conf in self.config.get("uavs", []):
             node = self.nodes.Get(uav_conf["id"])
             uid = int(uav_conf["id"])
-            MobilityFactory.install(node, uav_conf.get("mobility", {}))
+            mobility_conf = dict(uav_conf.get("mobility", {}))
+            if mobility_conf.get("type") == "trace" and mobility_conf.get("trace_file"):
+                trace_path = resolve_config_relative_path(self._config_dir, mobility_conf.get("trace_file"))
+                mobility_conf["waypoints"] = load_waypoints_from_json_file(trace_path)
+            MobilityFactory.install(node, mobility_conf)
 
-            uav = PMAP_UAV(
+            uav = self.protocol_spec.uav_class(
                 node,
                 uid,
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
+                auth_trigger_config=uav_conf.get("auth_trigger"),
+                link_state_config=uav_conf.get("link_state"),
             )
 
             self.uavs.append(uav)
@@ -199,10 +279,10 @@ class SimulationBuilderEnhanced:
 
     def _pre_reg(self):
         for uav in self.uavs:
-            reg = {"uav_id": uav.id, "crp": uav.crp, "pid": uav.pid}
+            reg = uav.get_registration_record()
             for zsp in self.zsps:
-                zsp.RegisterUAV(uav.pid, copy.deepcopy(reg))
-        print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs (PMAP)")
+                zsp.RegisterUAV(reg["pid"], copy.deepcopy(reg))
+        print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs ({self.protocol})")
 
 
 if __name__ == "__main__":

@@ -121,6 +121,139 @@ cd Frontend && npm install
 - REST：`/api/v1/simulation/...`、`/api/v1/analysis/...` 等（见 `Backend/api/routes/`）。
 - 前端开发态通过 **proxy** 访问后端；生产构建时需将 `Frontend` 内 API 基地址与部署域名对齐。
 
+## 阶段0基线场景
+
+为保证后续做动态性增强、多协议扩展与批量实验时不引入回归，当前建议先固定以下 3 个前端场景作为阶段0基线：
+
+- `baseline_d2z`
+- `pmap_ack_baseline`
+- `pmap_ack_attack_drop_ack`
+
+它们分别对应：
+
+- 经典 PMAP 的稳定入网基线
+- `PMAP_ACK` 的正常 ACK 提交路径
+- `PMAP_ACK` 的首次去同步后恢复路径
+
+建议在进入下一阶段前，至少确认以下检查项：
+
+- 基线 D2Z 能成功完成
+- `PMAP_ACK` 基线能正常走到 `D2Z_ACK_RECV -> D2Z_SUCCESS`
+- 去同步场景能出现一次 `D2Z_ACK_TIMEOUT`，随后恢复成功
+- 分析页能正确展示会话、成功率与时间线
+
+## 阶段1最小切口
+
+当前已补入两项“只扩骨架、不破基线”的动态能力：
+
+- `mobility.type = "trace"`：允许 UAV 从外部 JSON 轨迹文件加载航迹点。
+- `auth_trigger`：允许为 UAV 配置认证触发策略，当前支持：
+  - `initial_on_connect`
+  - `time_offsets_s`
+  - `edge_rssi_threshold`
+  - `cooldown_s`
+  - `allow_reauth`
+
+轨迹文件示例：
+
+```json
+{
+  "waypoints": [
+    [0, [0, 0, 100]],
+    [5, [100, 0, 100]],
+    [10, [180, 40, 110]]
+  ]
+}
+```
+
+UAV 配置示例：
+
+```json
+{
+  "id": 1,
+  "mobility": {
+    "type": "trace",
+    "trace_file": "traces/uav-1.json"
+  },
+  "auth_trigger": {
+    "initial_on_connect": true,
+    "time_offsets_s": [8, 16],
+    "edge_rssi_threshold": -82,
+    "cooldown_s": 4,
+    "allow_reauth": false
+  }
+}
+```
+
+说明：
+
+- `trace_file` 支持相对 `config.json` 所在目录解析。
+- 默认配置下，现有阶段0场景行为不变。
+- 阶段1当前是“触发骨架”，用于支撑后续任务驱动认证、边缘触发认证和轨迹回放实验。
+
+前端当前还补入了两个可直接创建的阶段1预置场景：
+
+- `dynamic_edge_recovery`
+  - 单 UAV 沿覆盖边缘移动
+  - 由 `edge_rssi_threshold` 触发认证
+  - 首次抑制 `D2Z_ACK` 后观察恢复
+- `swarm_burst_auth`
+  - 支持 `10 / 30 / 50 / 100` UAV 规模档位
+  - 由 `time_offsets_s` 在任务启动窗口集中触发认证
+  - 作为大规模并发认证实验入口
+
+阶段1现已扩展为完整动态场景集：
+
+- 运动模式：
+  - `trace`：外部轨迹回放
+  - `patrol`：轨迹巡检
+  - `formation`：编队起飞/群飞
+  - `transit`：高速转场
+- 认证触发：
+  - `initial_on_connect`
+  - `time_offsets_s`
+  - `edge_rssi_threshold`
+  - `on_handover`
+- 链路状态：
+  - `comm_range_m`
+  - `edge_rssi_threshold`
+  - `loss_windows`
+  - `drop_when_out_of_range`
+
+阶段1前端预置场景包括：
+
+- `dynamic_edge_recovery_natural`
+- `dynamic_edge_recovery_attack`
+- `handover_window_reauth`
+- `formation_takeoff_swarm`
+- `swarm_burst_network`
+- `swarm_burst_compute`
+- `high_speed_burst_loss`
+
+可视化分析中也已支持：
+
+- 会话级 `trigger_reason` / `trigger_step`
+- 任务级 `triggers.breakdown` 统计
+- `Success vs Distance`
+- `Recovery Completion Ratio`
+- `Re-authentication Cost`
+
+阶段1.5 文献对齐补强后，主实验口径建议固定为：
+
+- 主实验 A：
+  - `dynamic_edge_recovery_natural`：自然移动诱发恢复需求
+  - `dynamic_edge_recovery_attack`：恶意 ACK 抑制诱发恢复
+- 主实验 B：
+  - `swarm_burst_network`：固定协议代价，仅看并发接入冲击
+  - `swarm_burst_compute`：同一网络拓扑下引入统一响应延迟，模拟更重型协议计算代价
+
+如果以阶段进度表的“完成标志”为准，当前阶段1已经具备：
+
+- 10/30/50/100 UAV 规模场景入口
+- 位置/任务/切换窗口驱动认证触发
+- 距离/边缘/失联窗口与链路状态显式绑定
+- 动态场景的前端创建入口与后端分析出口
+
 ## 测试
 
 ```bash

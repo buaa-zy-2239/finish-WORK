@@ -33,14 +33,31 @@ class D2D_Session:
 
 class PMAP_UAV(BaseUAV):
 
-    def __init__(self, node, uav_id, attack_model=None, d2z_ack_mode: bool = False):
+    def __init__(
+        self,
+        node,
+        uav_id,
+        attack_model=None,
+        d2z_ack_mode: bool = False,
+        auth_trigger_config=None,
+        link_state_config=None,
+    ):
 
-        super().__init__(node, uav_id)
+        super().__init__(
+            node,
+            uav_id,
+            auth_trigger_config=auth_trigger_config,
+            link_state_config=link_state_config,
+            protocol_name="PMAP_ACK" if d2z_ack_mode else "PMAP",
+            analysis_family="D2Z",
+        )
 
         self.attack_model = attack_model if attack_model is not None else {}
         self.d2z_ack_mode = bool(d2z_ack_mode)
         self._d2z_pending_commit = None
         self._d2z_ack_deadline_gen = 0
+        self._d2z_attempt_counter = 0
+        self._d2z_attempt_session_id = None
 
         self.chaotic = ChaoticMap()
         self.puf = PUFGenerator(uav_id)
@@ -65,12 +82,38 @@ class PMAP_UAV(BaseUAV):
 
     def _d2z_log_extra(self, protocol_step: str) -> dict:
         return {
+            "protocol": self.protocol_name,
+            "analysis_family": self.analysis_family,
             "auth_session_id": getattr(self, "d2z_auth_session_id", None),
             "flow": "D2Z",
             "protocol_step": protocol_step,
             "peer_zsp_id": self.zsp_id,
             "peer_uav_id": self.id,
         }
+
+    def _can_trigger_d2z_auth(self) -> bool:
+        if not super()._can_trigger_d2z_auth():
+            return False
+        # PMAP_ACK 在收到 ACK 或 ACK 超时重试前，禁止新的动态触发重入。
+        if self.d2z_ack_mode and self._d2z_pending_commit is not None:
+            return False
+        return True
+
+    def _max_d2z_attempts(self):
+        v = self.attack_model.get("max_d2z_attempts")
+        if v is None:
+            return None
+        try:
+            n = int(v)
+            return n if n >= 1 else None
+        except Exception:
+            return None
+
+    def _refresh_attempt_scope(self):
+        sid = getattr(self, "d2z_auth_session_id", None)
+        if sid != self._d2z_attempt_session_id:
+            self._d2z_attempt_session_id = sid
+            self._d2z_attempt_counter = 0
 
     # =========================================================
     # Initialization
@@ -88,6 +131,16 @@ class PMAP_UAV(BaseUAV):
     # =========================================================
 
     def D2Z_InitiateAuth(self):
+        self._refresh_attempt_scope()
+        max_attempts = self._max_d2z_attempts()
+        if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
+            self.logger.log_warning(
+                "D2Z retry budget exhausted; skip new M1",
+                warning_type="d2z_retry_budget_exhausted",
+                extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
+            )
+            return
+        self._d2z_attempt_counter += 1
 
         self.ni = random.random()
         plaintext = PMAPPlaintext.encode(
@@ -378,7 +431,9 @@ class PMAP_UAV(BaseUAV):
 
                 self.SendData(packet)
                 self.crp = [challenge, response]
+                _old_pid = self.pid
                 self.pid = hash_256(str(self.id) + str(response))
+                self._desync_notify_local_pid(_old_pid, self.pid, "d2d_pid_roll")
                 session.session_key = \
                 int(hash_256(str(session.ni)), 16) ^ \
                 int(hash_256(str(session.nj)), 16)
@@ -438,7 +493,9 @@ class PMAP_UAV(BaseUAV):
                     peer_id=pid_j
                 )
                 new_pid = hash_256(str(self.id)+str(self.new_crp[1]))
+                _old_pid = self.pid
                 self.pid = new_pid
+                self._desync_notify_local_pid(_old_pid, self.pid, "d2d_m11_pid")
                 self.crp = self.new_crp
         except Exception as e:
             self.logger.log_message_error(
@@ -460,6 +517,30 @@ class PMAP_UAV(BaseUAV):
         if self._d2z_pending_commit is None:
             return
         self._d2z_pending_commit = None
+        max_attempts = self._max_d2z_attempts()
+        if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
+            self.logger.log_warning(
+                "D2Z ACK timeout and retry budget exhausted",
+                warning_type="d2z_retry_budget_exhausted",
+                extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
+            )
+            self.logger.log_authentication(
+                AuthenticationPhase.TIMEOUT,
+                success=False,
+                peer_id=self.zsp_id,
+                extra=self._d2z_log_extra("D2Z_TIMEOUT"),
+            )
+            return
+        # 记录ACK超时事件，标记当前会话为超时
+        self.logger.log_authentication(
+            AuthenticationPhase.TIMEOUT,
+            success=False,
+            peer_id=self.zsp_id,
+            extra={
+                **self._d2z_log_extra("D2Z_ACK_TIMEOUT"),
+                "auth_session_id": self.d2z_auth_session_id,
+            },
+        )
         self.logger.log_warning(
             "D2Z ACK timeout — UAV keeps old PID/CRP and retries M1 (session redundancy)",
             warning_type="d2z_ack_timeout",
@@ -471,6 +552,8 @@ class PMAP_UAV(BaseUAV):
             AuthenticationPhase.INITIATED,
             peer_id=self.zsp_id,
             extra={
+                "protocol": self.protocol_name,
+                "analysis_family": self.analysis_family,
                 "auth_session_id": self.d2z_auth_session_id,
                 "flow": "D2Z",
                 "protocol_step": "D2Z_RETRY_AFTER_ACK_TIMEOUT",
@@ -478,7 +561,8 @@ class PMAP_UAV(BaseUAV):
                 "peer_uav_id": self.id,
             },
         )
-        self._safe_schedule(0.5, self.D2Z_InitiateAuth)
+        # ACK超时后立即重试M1（不等待），提高响应速度和成功率
+        self.D2Z_InitiateAuth()
 
     def _handle_d2z_ack(self, packet_bytes: bytes):
         if not self._d2z_pending_commit:
@@ -581,7 +665,9 @@ class PMAP_UAV(BaseUAV):
             extra=self._d2z_log_extra("D2Z_ACK_RECV"),
         )
 
+        _old_pid = self.pid
         self.pid = pend["new_pid"]
+        self._desync_notify_local_pid(_old_pid, self.pid, "pmap_ack_apply")
         self.crp = pend["new_crp"]
         self.session_key = pend["session_key"]
 
@@ -668,7 +754,9 @@ class PMAP_UAV(BaseUAV):
                 return
 
             self.crp = [challenge, response]
+            _old_pid = self.pid
             self.pid = new_pid
+            self._desync_notify_local_pid(_old_pid, self.pid, "pmap_post_m3m4_local")
             self.session_key = session_key
 
             key_hash = hex(self.session_key)[2:]
@@ -733,4 +821,5 @@ class PMAP_UAV(BaseUAV):
                 "peer_uav_id": self.id,
             },
         )
-        self._safe_schedule(0.5, self.D2Z_InitiateAuth)
+        # M3/M4被拦截后立即重试（不等待），提高攻击场景下的恢复速度
+        self.D2Z_InitiateAuth()

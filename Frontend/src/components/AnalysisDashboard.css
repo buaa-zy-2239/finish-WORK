@@ -158,6 +158,20 @@ h2 {
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
+.trigger-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4e56c7;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
+.timeline-meta {
+  margin-bottom: 12px;
+}
+
 .timeline {
   position: relative;
   padding: 20px 0;

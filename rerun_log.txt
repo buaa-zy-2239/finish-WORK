@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/zhang/UAV/experiments/swarm_unified_scenario_experiment.py", line 641, in <module>
+    raise SystemExit(main())
+  File "/home/zhang/UAV/experiments/swarm_unified_scenario_experiment.py", line 562, in main
+    scenario_bank = _load_or_build_scenario_bank(bank_path, sizes, modes, args)
+  File "/home/zhang/UAV/experiments/swarm_unified_scenario_experiment.py", line 448, in _load_or_build_scenario_bank
+    key = _scenario_bank_key(mode, size, args.seed)
+AttributeError: 'Namespace' object has no attribute 'seed'. Did you mean: 'seeds'?

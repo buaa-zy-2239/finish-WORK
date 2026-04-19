@@ -15,6 +15,7 @@ import subprocess
 import sys
 
 from config import config
+from Common.protocol_registry import get_protocol_spec, list_supported_protocols
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
@@ -40,8 +41,7 @@ async def create_simulation_task(task_data: dict) -> dict:
         task_dir.mkdir(parents=True, exist_ok=True)
         
         config_file = task_dir / "config.json"
-        _protocol_raw = (task_data.get("protocol") or "PMAP").strip().upper()
-        _protocol = _protocol_raw if _protocol_raw in ("PMAP", "PMAP_ACK") else "PMAP"
+        _protocol = get_protocol_spec(task_data.get("protocol")).name
         config_data = {
             "task_id": task_id,
             "name": task_data.get("name", "Unnamed Task"),
@@ -55,6 +55,7 @@ async def create_simulation_task(task_data: dict) -> dict:
             "protocol": _protocol,
             "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
             "scenario": task_data.get("scenario"),
+            "scenario_profile": task_data.get("scenario_profile"),
             "security_profile": task_data.get("security_profile") or {},
             "attack_model": task_data.get("attack_model"),
         }
@@ -147,6 +148,14 @@ async def get_simulation_status(task_id: str) -> dict:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"获取任务状态失败: {str(e)}")
+
+
+@router.get("/protocols")
+async def list_protocols() -> dict:
+    return {
+        "success": True,
+        "protocols": list_supported_protocols(),
+    }
 
 
 @router.get("/list")

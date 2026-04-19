@@ -147,6 +147,14 @@ class LogService:
                     "M2_errors": 0,
                     "M3_M4_errors": 0,
                 },
+                "triggers": {
+                    "breakdown": {},
+                },
+                "mechanism": {
+                    "success_vs_distance": [],
+                    "recovery_completion_ratio": 0.0,
+                    "reauthentication_cost": {},
+                },
             }
         return self.analyzer.get_summary()
 

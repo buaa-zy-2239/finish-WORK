@@ -21,9 +21,9 @@ from ns import ns
 from Common.logging_framework import get_log_manager, reset_log_manager
 from Common.attack_model import merge_attack_model
 from Common.desync_attack_template import apply_desync_template
+from Common.protocol_registry import get_protocol_spec
+from Common.scenario_inputs import load_waypoints_from_json_file, resolve_config_relative_path
 from Mobility.mobility import MobilityFactory
-from Entity.UAV.PMAPUAV import PMAP_UAV
-from Entity.ZSP.PMAPZSP import PMAP_ZSP
 from BlockChain.Blockchain import Web3BlockchainAdapter
 import copy
 
@@ -38,12 +38,11 @@ class SimulationBuilderEnhanced:
             self.config = config_dict
         else:
             raise ValueError("Must provide config_path or config_dict")
+        self._config_dir = str(Path(config_path).resolve().parent) if config_path else None
 
-        proto = (self.config.get("protocol") or "PMAP").strip().upper()
-        if proto not in ("PMAP", "PMAP_ACK"):
-            proto = "PMAP"
-        self.protocol = proto
-        self.d2z_ack_mode = proto == "PMAP_ACK"
+        self.protocol_spec = get_protocol_spec(self.config.get("protocol"))
+        self.protocol = self.protocol_spec.name
+        self.d2z_ack_mode = bool(self.protocol_spec.builder_options.get("d2z_ack_mode", False))
 
         self.attack_model = apply_desync_template(merge_attack_model(self.config))
         self.interfaces = None
@@ -166,13 +165,14 @@ class SimulationBuilderEnhanced:
             node = self.nodes.Get(zsp_conf["id"])
             zid = int(zsp_conf["id"])
 
-            zsp = PMAP_ZSP(
+            zsp = self.protocol_spec.zsp_class(
                 node,
                 zid,
                 blockchain=self.blockchain,
                 enable_blockchain=True,
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
+                compute_profile=zsp_conf.get("compute_profile"),
             )
 
             MobilityFactory.install_constant(node, zsp_conf.get("position", [0, 0, 100]))
@@ -185,13 +185,19 @@ class SimulationBuilderEnhanced:
         for uav_conf in self.config.get("uavs", []):
             node = self.nodes.Get(uav_conf["id"])
             uid = int(uav_conf["id"])
-            MobilityFactory.install(node, uav_conf.get("mobility", {}))
+            mobility_conf = dict(uav_conf.get("mobility", {}))
+            if mobility_conf.get("type") == "trace" and mobility_conf.get("trace_file"):
+                trace_path = resolve_config_relative_path(self._config_dir, mobility_conf.get("trace_file"))
+                mobility_conf["waypoints"] = load_waypoints_from_json_file(trace_path)
+            MobilityFactory.install(node, mobility_conf)
 
-            uav = PMAP_UAV(
+            uav = self.protocol_spec.uav_class(
                 node,
                 uid,
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
+                auth_trigger_config=uav_conf.get("auth_trigger"),
+                link_state_config=uav_conf.get("link_state"),
             )
 
             self.uavs.append(uav)
@@ -201,10 +207,10 @@ class SimulationBuilderEnhanced:
 
     def _pre_reg(self):
         for uav in self.uavs:
-            reg = {"uav_id": uav.id, "crp": uav.crp, "pid": uav.pid}
+            reg = uav.get_registration_record()
             for zsp in self.zsps:
-                zsp.RegisterUAV(uav.pid, copy.deepcopy(reg))
-        print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs (PMAP)")
+                zsp.RegisterUAV(reg["pid"], copy.deepcopy(reg))
+        print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs ({self.protocol})")
 
 
 if __name__ == "__main__":

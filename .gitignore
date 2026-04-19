@@ -37,40 +37,93 @@ coverage.xml
 .tox/
 noxfile.py~
 
-# ========== Node / 前端 ==========
-**/node_modules/
-Frontend/build/
-Frontend/.env.local
-Frontend/.env.development.local
-Frontend/.env.test.local
-Frontend/.env.production.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# ========== 运行日志与本地产物 ==========
-logs/
-*.log
-
-# 若仿真任务目录放在仓库内（默认可在 ~/UAV_Simulation/tasks）
-tasks/
-UAV_Simulation/
-
-# ========== 环境变量与密钥（勿提交） ==========
-.env
-.env.*
-!.env.example
-
-# ========== IDE / 系统 ==========
+# ========== IDE / 编辑器 ==========
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
 .DS_Store
 Thumbs.db
 
-# ========== 其他 ==========
+# ========== 环境变量（勿提交） ==========
+.env
+.env.*
+!.env.example
+
+# ========== 临时文件 ==========
 *.tmp
 *.temp
 *.bak
+*.log
+logs/
+
+# ========== NS-3 构建产物 ==========
+ns3-build/
+ns3-config/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+ns3/*.trs
+
+# ========== UAV项目 - 实验产物（核心忽略规则）==========
+
+# 【必须忽略】大规模仿真详细日志（体积大，可重新生成）
+experiments/results_*/**/logs/*.jsonl
+experiments/results_*/**/logs/*.log
+
+# 【必须忽略】场景库文件（大JSON，可由config重新生成）
+experiments/results_*/**/scenario_bank*.json
+
+# 【必须忽略】中间分析文件（可重新生成）
+experiments/**/round_analysis_*.json
+experiments/**/aggregated_statistics.json
+
+# 【必须忽略】临时任务目录
+experiments/tasks/
+experiments/UAV_Simulation/
+tasks/
+UAV_Simulation/
+
+# 【建议保留】核心结果文件（result.json 是仿真产物，体积适中）
+# 如需忽略请取消注释下一行：
+experiments/results_*/
+
+# 【建议保留】实验清单（记录实验配置）
+# 如需忽略请取消注释：
+experiments/results_*/**/swarm_manifest.json
+experiments/results_*/**/MANIFEST.json
+
+# 【可选忽略】图表文件（PDF/PNG）- 根据项目策略
+策略A：忽略所有图表（可由数据重新生成）
+experiments/results_*/figures/*.pdf
+experiments/results_*/figures/*.png
+experiments/results_*/figures/
+
+# 策略B：仅保留叙事图（Fig1-3），忽略其他
+# experiments/results_*/figures/cumulative_success_*
+# experiments/results_*/figures/instantaneous_rate_*
+# experiments/results_*/figures/paired_*
+# experiments/results_*/figures/narrative_*
+
+# 【建议忽略】示例/测试结果（非核心代码）
+experiments/test_*.py
+experiments/reproducible/**/results_*/
+
+# ========== Jupyter Notebook ==========
+.ipynb_checkpoints/
+*.ipynb
+
+# ========== 数据文件 ==========
+*.csv
+data/
+datasets/
+raw_data/
+
+# ========== 文档构建产物 ==========
+docs/_build/
+docs/_static/
+docs/_templates/
+*.doctrees/

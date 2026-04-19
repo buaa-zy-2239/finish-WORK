@@ -17,6 +17,7 @@ class D2ZLogParser:
     D2Z_EVENT_TYPES = {
         "AUTHENTICATION_SUCCESS": "auth",
         "AUTHENTICATION_FAILED": "auth",
+        "AUTHENTICATION_TIMEOUT": "auth",
         "MESSAGE_SENT": "message",
         "MESSAGE_RECEIVED": "message",
         "MESSAGE_ERROR": "error",
@@ -99,7 +100,14 @@ class D2ZLogParser:
         session_key_hash: Optional[str] = None
         auth_session_id = details.get("auth_session_id")
         flow = details.get("flow")
+        protocol = details.get("protocol")
+        analysis_family = details.get("analysis_family")
         protocol_step = details.get("protocol_step")
+        distance_m = details.get("distance_m")
+        rssi = details.get("rssi")
+        link_zone = details.get("link_zone")
+        block_reason = details.get("block_reason")
+        is_timeout = False
 
         if event_type == "AUTHENTICATION_SUCCESS":
             auth_phase = details.get("phase", "")
@@ -119,6 +127,17 @@ class D2ZLogParser:
             phase = D2ZPhase.FAILED
             success = False
             error_reason = details.get("error_reason") or details.get("error_message") or "Unknown error"
+            # Check for timeout semantics via protocol_step or error_reason
+            if protocol_step and any(t in str(protocol_step).upper() for t in ["TIMEOUT", "D2Z_ACK_TIMEOUT", "RETRY_BUDGET_EXHAUSTED"]):
+                phase = D2ZPhase.TIMEOUT
+                is_timeout = True
+                error_reason = "d2z_ack_timeout" if "TIMEOUT" in str(protocol_step).upper() else error_reason
+
+        elif event_type == "AUTHENTICATION_TIMEOUT":
+            phase = D2ZPhase.TIMEOUT
+            success = False
+            is_timeout = True
+            error_reason = details.get("error_reason") or details.get("error_message") or "d2z_ack_timeout"
 
         elif event_type == "MESSAGE_ERROR":
             phase = D2ZPhase.FAILED
@@ -127,6 +146,9 @@ class D2ZLogParser:
             payload_size = details.get("payload_size")
             error_reason = details.get("error_reason", "message_error")
             protocol_step = protocol_step or "MESSAGE_ERROR"
+            if protocol_step and any(t in str(protocol_step).upper() for t in ["TIMEOUT", "D2Z_ACK_TIMEOUT"]):
+                phase = D2ZPhase.TIMEOUT
+                is_timeout = True
 
         elif event_type == "MESSAGE_SENT":
             message_type = details.get("message_type", "") or ""
@@ -172,7 +194,15 @@ class D2ZLogParser:
             session_key_hash=session_key_hash,
             auth_session_id=auth_session_id,
             flow=flow,
+            protocol=protocol,
+            analysis_family=analysis_family,
             protocol_step=protocol_step,
+            distance_m=float(distance_m) if distance_m is not None else None,
+            rssi=float(rssi) if rssi is not None else None,
+            link_zone=link_zone,
+            block_reason=block_reason,
+            is_timeout=is_timeout,
+            entity_type=entity_type,
         )
 
     @staticmethod

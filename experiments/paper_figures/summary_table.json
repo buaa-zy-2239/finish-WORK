@@ -1,0 +1,66 @@
+{
+  "title": "D2Z Protocol Performance Summary",
+  "metric_definitions": {
+    "protocol_correctness_rate": "Protocol correctness: successful / (successful + failed). Excludes timeouts. Reflects pure protocol security/correctness.",
+    "session_completion_rate": "Session completion: successful / total. Includes timeouts. Reflects end-to-end performance including scheduling/channel.",
+    "channel_reliability": "Channel reliability: (successful + failed) / total. Proportion of sessions completing protocol flow."
+  },
+  "scenarios": {
+    "desync_boundary_ack_once": {
+      "PMAP": {
+        "N=10": {
+          "protocol_correctness": "N/A",
+          "session_completion": "98.9±1.9%",
+          "n_runs": 3
+        },
+        "N=30": {
+          "protocol_correctness": "N/A",
+          "session_completion": "94.8±1.7%",
+          "n_runs": 3
+        }
+      },
+      "PMAP_ACK": {
+        "N=10": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        },
+        "N=30": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        }
+      }
+    },
+    "desync_boundary_m3m4_once": {
+      "PMAP": {
+        "N=10": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        },
+        "N=30": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        }
+      },
+      "PMAP_ACK": {
+        "N=10": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        },
+        "N=30": {
+          "protocol_correctness": "N/A",
+          "session_completion": "33.3±0.0%",
+          "n_runs": 3
+        }
+      }
+    }
+  },
+  "sources": [
+    "/home/zhang/UAV/experiments/results_top_tier_desync",
+    "round_analysis from /home/zhang/UAV/experiments/results_top_tier_desync"
+  ]
+}

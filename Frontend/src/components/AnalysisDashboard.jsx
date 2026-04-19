@@ -81,6 +81,23 @@ export const AnalysisDashboard = () => {
     return num.toFixed(2);
   };
 
+  const formatTriggerLabel = (trigger) => {
+    switch (trigger) {
+      case 'edge_rssi':
+        return '边缘 RSSI';
+      case 'time_window':
+        return '任务时间窗';
+      case 'connect':
+        return '连接建立';
+      case 'retry':
+        return '重试恢复';
+      case 'handover_window':
+        return '切换窗口';
+      default:
+        return trigger || '未知';
+    }
+  };
+
   return (
     <div className="analysis-dashboard">
       {error && <div className="error-banner">{error}</div>}
@@ -185,9 +202,82 @@ export const AnalysisDashboard = () => {
                 <span className="value">{metrics.errors?.M2_errors || 0}</span>
               </div>
             </div>
+
+            <div className="metric-card">
+              <h3>触发来源</h3>
+              {Object.entries(metrics.triggers?.breakdown || {}).length === 0 ? (
+                <div className="metric-item">
+                  <span className="label">暂无：</span>
+                  <span className="value">0</span>
+                </div>
+              ) : (
+                Object.entries(metrics.triggers?.breakdown || {}).map(([key, count]) => (
+                  <div className="metric-item" key={key}>
+                    <span className="label">{formatTriggerLabel(key)}：</span>
+                    <span className="value">{count}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="metric-card">
+              <h3>机制指标</h3>
+              <div className="metric-item">
+                <span className="label">恢复完成率：</span>
+                <span className="value">
+                  {formatNumber((metrics.mechanism?.recovery_completion_ratio || 0) * 100)}%
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重认证额外消息：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_messages_vs_baseline || 0)}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重认证额外字节：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_bytes_vs_baseline || 0)}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重认证额外时延：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_duration_vs_baseline || 0)} s
+                </span>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="loading-placeholder">{loading ? '加载中...' : '暂无数据'}</div>
+        )}
+      </div>
+
+      <div className="metrics-section">
+        <h2>Success vs Distance</h2>
+        {metrics?.mechanism?.success_vs_distance?.length ? (
+          <table className="sessions-table">
+            <thead>
+              <tr>
+                <th>距离分桶</th>
+                <th>总会话</th>
+                <th>成功会话</th>
+                <th>成功率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.mechanism.success_vs_distance.map((item) => (
+                <tr key={item.bucket}>
+                  <td>{item.bucket}</td>
+                  <td>{item.total_sessions}</td>
+                  <td>{item.successful_sessions}</td>
+                  <td>{formatNumber(item.success_rate_percent)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="loading-placeholder">暂无距离分桶数据</div>
         )}
       </div>
 
@@ -210,6 +300,7 @@ export const AnalysisDashboard = () => {
                 <th>UAV</th>
                 <th>ZSP</th>
                 <th>状态</th>
+                <th>触发来源</th>
                 <th>耗时 (s)</th>
                 <th>消息数</th>
                 <th>字节</th>
@@ -228,6 +319,11 @@ export const AnalysisDashboard = () => {
                   <td>
                     <span className={`status-badge ${session.success ? 'success' : 'error'}`}>
                       {session.success ? '成功' : '失败'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="trigger-badge" title={session.trigger_step || ''}>
+                      {formatTriggerLabel(session.trigger_reason)}
                     </span>
                   </td>
                   <td>{formatNumber(session.duration_seconds)}</td>
@@ -251,6 +347,11 @@ export const AnalysisDashboard = () => {
             会话时间线 — UAV {selectedSession.uav_id} → ZSP {selectedSession.zsp_id}
             {selectedSession.session_id ? ` (${selectedSession.session_id.slice(0, 8)}…)` : ''}
           </h2>
+          <div className="timeline-meta">
+            <span className="trigger-badge" title={selectedSession.trigger_step || ''}>
+              触发来源：{formatTriggerLabel(selectedSession.trigger_reason)}
+            </span>
+          </div>
           {timeline.length === 0 ? (
             <div className="empty-state">
               <p>暂无时间线数据</p>

@@ -47,7 +47,18 @@
   transition: border-color 0.3s;
 }
 
-.form-group input:focus {
+.form-group select {
+  padding: 12px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 1em;
+  background: #fff;
+  transition: border-color 0.3s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-color: #667eea;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -57,6 +68,22 @@
   margin-top: 6px;
   color: #999;
   font-size: 0.85em;
+}
+
+.scenario-desc {
+  margin: 8px 0 0;
+  color: #555;
+  line-height: 1.5;
+}
+
+.scenario-tag {
+  display: inline-block;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #5b63d3;
+  font-weight: 600;
 }
 
 .duration-input {

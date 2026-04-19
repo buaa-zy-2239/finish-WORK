@@ -1,6 +1,8 @@
 from ns import ns
 import cppyy
 import abc
+from collections import deque
+import random
 import os
 import time
 import json
@@ -9,11 +11,20 @@ from Common.logging_framework import (
 )
 from Common.crp_chain_codec import canonicalize_crp_pair
 from Entity.UAV.BaseUAV import BaseUAV
+from Common.desync_experiment_hooks import emit_desync_pid_transition
 
 
 class BaseZSP(ns.Application):
 
-    def __init__(self, node, zsp_id, blockchain=None, enable_blockchain=True):
+    def __init__(
+        self,
+        node,
+        zsp_id,
+        blockchain=None,
+        enable_blockchain=True,
+        protocol_name="GENERIC",
+        analysis_family="D2Z",
+    ):
 
         super().__init__()
 
@@ -21,6 +32,8 @@ class BaseZSP(ns.Application):
 
         self.node = node
         self.zsp_id = zsp_id
+        self.protocol_name = protocol_name
+        self.analysis_family = analysis_family
 
         self.enable_blockchain = enable_blockchain
         self.blockchain = blockchain
@@ -35,13 +48,15 @@ class BaseZSP(ns.Application):
         )
         self.m_socket.SetAllowBroadcast(True)
 
-        # Poll refs
-        self._poll_refs = []
+        # 有界保留，避免长时间仿真 + 多机时调度包装器无限堆积（见 BaseUAV 同字段说明）
+        _cap = 262144
+        self._poll_refs = deque(maxlen=_cap)
         self._poll_interval = ns.MilliSeconds(100)
 
         # Blockchain poll
-        self._bc_refs = []
+        self._bc_refs = deque(maxlen=_cap)
         self._bc_poll_interval = ns.Seconds(1)
+        self._event_refs = deque(maxlen=_cap)
 
         if blockchain:
             self.last_event_block = blockchain.w3.eth.block_number - 1
@@ -51,6 +66,7 @@ class BaseZSP(ns.Application):
         # 容错
         self.error_count = 0
         self.max_errors = 50
+        self._downlink_ge_bad_state = False
 
         self.logger = ZSPLogger(zsp_id)
     # =============================
@@ -125,7 +141,7 @@ class BaseZSP(ns.Application):
 
             self.logger.log_debug("ZSP service started")
 
-            self._schedule_poll()
+            self._install_recv_callback()
 
             if self.enable_blockchain:
                 self._schedule_blockchain_poll()
@@ -141,57 +157,46 @@ class BaseZSP(ns.Application):
             self.logger.log_error(f"Stop error: {e}", error_type="StopApplication")
 
     # =============================
-    # Socket Poll
+    # Socket Receive Callback
     # =============================
 
-    def _schedule_poll(self):
+    def _install_recv_callback(self):
 
-        def cb():
-            self._poll_socket()
+        def on_recv(sock):
+            self._safe_execute("recv_callback", self._drain_socket_packets, sock)
 
-        wrapper = cppyy.gbl.std.function['void()'](cb)
-
-        self._poll_refs.append(cb)
+        wrapper = cppyy.gbl.std.function['void(ns3::Ptr<ns3::Socket>)'](on_recv)
+        self._poll_refs.append(on_recv)
         self._poll_refs.append(wrapper)
+        self.m_socket.SetRecvCallback(wrapper)
 
-        ns.Simulator.Schedule(self._poll_interval, wrapper)
-
-    def _poll_socket(self):
-
-        def logic():
-
-            while True:
-
-                try:
-                    if self.m_socket.GetRxAvailable() <= 0:
-                        break
-                except Exception as e:
-                    self.logger.log_error(f"Socket state error: {e}", error_type="socket_state")
+    def _drain_socket_packets(self, sock=None):
+        sock_obj = sock if sock is not None else self.m_socket
+        while True:
+            try:
+                if sock_obj.GetRxAvailable() <= 0:
                     break
+            except Exception as e:
+                self.logger.log_error(f"Socket state error: {e}", error_type="socket_state")
+                break
 
-                try:
-                    from_addr = ns.Address()
-                    packet = self.m_socket.RecvFrom(from_addr)
-                except Exception as e:
-                    self.logger.log_error(f"Recv error: {e}", error_type="socket_recv")
-                    break
+            try:
+                from_addr = ns.Address()
+                packet = sock_obj.RecvFrom(from_addr)
+            except Exception as e:
+                self.logger.log_error(f"Recv error: {e}", error_type="socket_recv")
+                break
 
-                if not packet or packet.GetSize() == 0:
-                    break
+            if not packet or packet.GetSize() == 0:
+                break
 
-                try:
-                    size = packet.GetSize()
-                    buf = bytearray(size)
-                    packet.CopyData(buf, size)
-
-                    self.ProcessRequest(buf, from_addr)
-
-                except Exception as e:
-                    self.logger.log_error(f"Packet process error: {e}", error_type="packet_processing")
-
-        self._safe_execute("poll_socket", logic)
-
-        self._schedule_poll()
+            try:
+                size = packet.GetSize()
+                buf = bytearray(size)
+                packet.CopyData(buf, size)
+                self.ProcessRequest(buf, from_addr)
+            except Exception as e:
+                self.logger.log_error(f"Packet process error: {e}", error_type="packet_processing")
 
     # =============================
     # Blockchain Poll
@@ -252,6 +257,18 @@ class BaseZSP(ns.Application):
 
         self._schedule_blockchain_poll()
 
+    def _safe_schedule(self, delay_sec, func, *args):
+
+        def wrapper():
+            self._safe_execute(func.__name__, func, *args)
+
+        event_cb = cppyy.gbl.std.function['void()'](wrapper)
+
+        self._event_refs.append(wrapper)
+        self._event_refs.append(event_cb)
+
+        ns.Simulator.Schedule(ns.Seconds(delay_sec), event_cb)
+
     # =============================
     # PID 同步
     # =============================
@@ -265,6 +282,13 @@ class BaseZSP(ns.Application):
                 info["pid"] = new_pid
 
                 self.uav_db[new_pid] = info
+                emit_desync_pid_transition(
+                    self,
+                    "zsp",
+                    "_handle_pid_update",
+                    old_pid=old_pid,
+                    new_pid=new_pid,
+                )
 
             else:
                 return
@@ -305,6 +329,7 @@ class BaseZSP(ns.Application):
         def logic():
             nc, nr = canonicalize_crp_pair(float(new_challenge), float(new_response))
 
+            mutated = False
             if old_pid in self.uav_db:
 
                 info = self.uav_db.pop(old_pid)
@@ -312,6 +337,7 @@ class BaseZSP(ns.Application):
 
                 self.uav_db[new_pid] = info
                 self.uav_db[new_pid]["crp"] = [nc, nr]
+                mutated = True
 
             self.logger.log_pid_rotation(
                     old_pid, new_pid,
@@ -324,6 +350,15 @@ class BaseZSP(ns.Application):
                     nc, nr,
                 )
 
+            if mutated:
+                emit_desync_pid_transition(
+                    self,
+                    "zsp",
+                    "UpdateUAVPID",
+                    old_pid=old_pid,
+                    new_pid=new_pid,
+                )
+
         self._safe_execute("UpdateUAVPID", logic)
 
     # =============================
@@ -333,6 +368,22 @@ class BaseZSP(ns.Application):
     def SendResponse(self, data_bytes, dest_addr):
 
         def logic():
+            attack_model = getattr(self, "attack_model", {}) or {}
+            downlink_loss_rate = float(attack_model.get("downlink_loss_rate", 0.0) or 0.0)
+            burst_loss_rate = self._downlink_burst_loss_rate(attack_model)
+            combined_loss_rate = 1.0 - (1.0 - downlink_loss_rate) * (1.0 - burst_loss_rate)
+            if combined_loss_rate > 0.0 and random.random() < combined_loss_rate:
+                self.logger.log_warning(
+                    "Probabilistic downlink drop injected",
+                    warning_type="downlink_loss_injected",
+                    extra={
+                        "loss_rate": combined_loss_rate,
+                        "downlink_loss_rate": downlink_loss_rate,
+                        "burst_loss_rate": burst_loss_rate,
+                        "peer_zsp_id": self.zsp_id,
+                    },
+                )
+                return
 
             size = len(data_bytes)
 
@@ -346,6 +397,22 @@ class BaseZSP(ns.Application):
             self.m_socket.SendTo(packet, 0, dest_addr)
 
         self._safe_execute("SendResponse", logic)
+
+    def _downlink_burst_loss_rate(self, attack_model: dict) -> float:
+        model = attack_model.get("downlink_burst_loss_model") or {}
+        if not model.get("enabled", False):
+            return 0.0
+        p_g2b = max(0.0, min(1.0, float(model.get("p_good_to_bad", 0.02))))
+        p_b2g = max(0.0, min(1.0, float(model.get("p_bad_to_good", 0.25))))
+        if self._downlink_ge_bad_state:
+            if random.random() < p_b2g:
+                self._downlink_ge_bad_state = False
+        else:
+            if random.random() < p_g2b:
+                self._downlink_ge_bad_state = True
+        if self._downlink_ge_bad_state:
+            return max(0.0, min(1.0, float(model.get("loss_bad", 0.75))))
+        return max(0.0, min(1.0, float(model.get("loss_good", 0.01))))
 
     # =============================
     # Abstract

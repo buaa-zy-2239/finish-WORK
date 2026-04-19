@@ -1,0 +1,44 @@
+{
+  "task_id": "compare_handover_rlba",
+  "name": "Compare Handover RLBA",
+  "created_at": "2026-04-16T00:00:00",
+  "duration": 42,
+  "uavs": [
+    {
+      "id": 0,
+      "mobility": {
+        "type": "transit",
+        "start": [0, 0, 55],
+        "end": [420, 0, 55],
+        "speed_mps": 12
+      },
+      "auth_trigger": {
+        "initial_on_connect": true,
+        "on_handover": true,
+        "handover_delay_s": 0.4,
+        "allow_reauth": false
+      },
+      "link_state": {
+        "comm_range_m": 300
+      }
+    }
+  ],
+  "zsps": [
+    {
+      "id": 2,
+      "position": [0, 0, 100]
+    },
+    {
+      "id": 3,
+      "position": [300, 0, 100]
+    }
+  ],
+  "simulation": {
+    "duration": 42
+  },
+  "protocol": "RLBA_UAV",
+  "channel": {
+    "type": "CSMA",
+    "datarate": "100Mbps"
+  }
+}

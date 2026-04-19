@@ -53,7 +53,8 @@ class AuthenticationPhase(Enum):
     MESSAGE_RECEIVED = "message_received"      # 消息已接收
     SESSION_ESTABLISHED = "session_established"  # 会话建立
     SUCCESS = "success"                        # 认证成功
-    FAILED = "failed"                          # 认证失败
+    FAILED = "failed"                          # 认证失败 (explicit crypto/verification failure)
+    TIMEOUT = "timeout"                        # 由于丢包、拦截、ACK超时导致的超时 (NOT counted as auth failure)
 
 
 class MobilityEventType(Enum):
@@ -410,7 +411,11 @@ class EntityLogger:
             details.update(extra)
         
         level = LogLevel.INFO if success else LogLevel.WARNING
-        event_type = "AUTHENTICATION_SUCCESS" if success else "AUTHENTICATION_FAILED"
+        if phase == AuthenticationPhase.TIMEOUT:
+            event_type = "AUTHENTICATION_TIMEOUT"
+            level = LogLevel.WARNING
+        else:
+            event_type = "AUTHENTICATION_SUCCESS" if success else "AUTHENTICATION_FAILED"
         
         self._log(level, event_type, details)
     
