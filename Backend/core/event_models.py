@@ -39,6 +39,7 @@ class D2ZEvent:
     error_reason: Optional[str] = None
     session_key_hash: Optional[str] = None
     auth_session_id: Optional[str] = None
+    zsp_session_id: Optional[str] = None
     flow: Optional[str] = None
     protocol: Optional[str] = None
     analysis_family: Optional[str] = None
@@ -68,6 +69,7 @@ class D2ZEvent:
             "error_reason": self.error_reason,
             "session_key_hash": self.session_key_hash,
             "auth_session_id": self.auth_session_id,
+            "zsp_session_id": self.zsp_session_id,
             "flow": self.flow,
             "protocol": self.protocol,
             "analysis_family": self.analysis_family,
@@ -88,6 +90,7 @@ class D2ZSession:
     start_time: float
     end_time: Optional[float]
     auth_session_id: Optional[str] = None
+    zsp_session_id: Optional[str] = None
     total_events: int = 0
     message_count: int = 0
     m1_size: int = 0
@@ -122,6 +125,7 @@ class D2ZSession:
         return {
             "session_id": sid,
             "auth_session_id": self.auth_session_id,
+            "zsp_session_id": self.zsp_session_id,
             "uav_id": self.uav_id,
             "zsp_id": self.zsp_id,
             "start_time": self.start_time,

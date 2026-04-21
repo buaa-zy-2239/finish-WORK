@@ -242,22 +242,23 @@ async def _run_simulation_background(task_id: str, config_file: str):
             
             print(f"[SIMULATION] Running: {' '.join(cmd)}")
             
-            # 设置环境变量
+            # 设置环境变量 - 参考 experiments 中的实现
             env = os.environ.copy()
-            env["CONFIG_FILE"] = config_file
-            env["SIM_LOG_DIR"] = str(log_subdir)
+            env["CONFIG_FILE"] = str(Path(config_file).resolve())
+            env["SIM_LOG_DIR"] = str(log_subdir.resolve())
             env["SIM_ID"] = str(abs(hash(task_id)) % (10**9))
+            env.setdefault("MALLOC_ARENA_MAX", "2")  # 防止内存分配问题
             
             task["progress"] = 5
             
-            # 执行仿真
+            # 执行仿真 - 使用 experiments 中的 cwd 设置
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
-                cwd=os.path.dirname(simulator_script)
+                cwd=str(Path(__file__).resolve().parents[2])  # 项目根目录
             )
             
             print(f"[SIMULATION] ===== Simulation Output Start =====")

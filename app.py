@@ -35,7 +35,9 @@ class D2ZApiServer:
         self.app = Flask(__name__)
         CORS(self.app)
         self.log_dir = Path(log_dir)
-        self.log_service = LogService(log_dir)
+        self.log_service = LogService()
+        # 设置当前分析所用的仿真任务目录
+        self.log_service.set_active_task(None)
         
         # 错误处理
         self._setup_error_handlers()

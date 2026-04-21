@@ -29,7 +29,7 @@ class Config:
         return log_dir
     
     # 仿真任务目录
-    SIMULATION_TASKS_DIR = os.path.expanduser("~/UAV_Simulation/tasks")
+    SIMULATION_TASKS_DIR = os.path.join(PROJECT_ROOT, "tasks")
     
     # NS-3 仿真器相关配置（与本地 ns3 可执行文件一致）
     NS3_INSTALL_PATH = "/home/zhang/ns/ns-allinone-3.43/ns-3.43"

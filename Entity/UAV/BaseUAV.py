@@ -72,6 +72,7 @@ class BaseUAV(ns.Application):
         self._last_link_zone = None
         self._last_out_of_range_state = False
         self._uplink_ge_bad_state = False
+        self._last_send_dropped = False
 
         # 容错机制
         self.error_count = 0
@@ -484,7 +485,7 @@ class BaseUAV(ns.Application):
 
         self._safe_execute("Connect", logic)
 
-    def SendData(self, payload_bytes):
+    def SendData(self, payload_bytes, message_type=None):
 
         def logic():
             uplink_loss_rate = float(self.link_state_config.get("uplink_loss_rate", 0.0) or 0.0)
@@ -493,18 +494,20 @@ class BaseUAV(ns.Application):
             combined_loss_rate = 1.0 - (1.0 - uplink_loss_rate) * (1.0 - rssi_loss_rate) * (1.0 - burst_loss_rate)
             if combined_loss_rate > 0.0 and random.random() < combined_loss_rate:
                 self.logger.log_warning(
-                    "Probabilistic uplink drop injected",
+                    f"Probabilistic uplink drop injected: {message_type or 'Unknown message'}",
                     warning_type="uplink_loss_injected",
                     extra={
                         "loss_rate": combined_loss_rate,
                         "uplink_loss_rate": uplink_loss_rate,
                         "rssi_loss_rate": rssi_loss_rate,
                         "burst_loss_rate": burst_loss_rate,
+                        "message_type": message_type,
                         "peer_zsp_id": self.zsp_id,
                         "peer_uav_id": self.id,
                     },
                 )
-                return
+                self._last_send_dropped = True
+                return False
             link_state = self._get_link_state_snapshot()
             if link_state["blocked"]:
                 self.logger.log_warning(
@@ -519,7 +522,8 @@ class BaseUAV(ns.Application):
                         "peer_uav_id": self.id,
                     },
                 )
-                return
+                self._last_send_dropped = True
+                return False
 
             size = len(payload_bytes)
 
@@ -531,6 +535,8 @@ class BaseUAV(ns.Application):
             packet = ns.Packet(cpp_buffer.data(), size)
 
             self.m_socket.Send(packet)
+            self._last_send_dropped = False
+            return True
 
         self._safe_execute("SendData", logic)
 

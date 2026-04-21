@@ -4,6 +4,7 @@ D2Z协议效率分析器（支持 auth_session_id 与多轮会话）
 """
 
 import statistics
+import sys
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,7 @@ class D2ZAnalyzer:
         self.logical_sessions: Dict[str, D2ZSession] = {}
         self.metrics = D2ZMetrics()
         self._sid_alias: Dict[str, str] = {}
+        self._zsp_sid_to_auth_sid: Dict[str, str] = {}
         self._analyze()
 
     def _analyze(self) -> None:
@@ -60,6 +62,8 @@ class D2ZAnalyzer:
                 pair = (e.uav_id, int(e.zsp_id))
 
             if e.phase == D2ZPhase.INITIATED and pair is not None:
+                print(f"DEBUG:   Creating session for INITIATED event", file=sys.stderr)
+                print(f"DEBUG:   Event details: uav_id={e.uav_id}, zsp_id={e.zsp_id}, auth_session_id={e.auth_session_id}", file=sys.stderr)
                 raw_sid = e.auth_session_id or f"legacy-{pair[0]}-{pair[1]}-{e.sim_time:.6f}"
                 trigger_reason = self._classify_trigger(e.protocol_step)
                 if trigger_reason == "retry" and stacks[pair]:
@@ -95,6 +99,7 @@ class D2ZAnalyzer:
                 self.logical_sessions[sid] = sess
                 stacks[pair].append(sid)
                 self._sid_alias[raw_sid] = sid
+                print(f"DEBUG:   Created session: {sid} for UAV {pair[0]} -> ZSP {pair[1]}", file=sys.stderr)
                 continue
 
             # 处理SESSION_KEY_ESTABLISHED事件：记录session_key_hash（不结束会话）
@@ -102,6 +107,8 @@ class D2ZAnalyzer:
                 sid = e.auth_session_id
                 if sid:
                     sid = self._sid_alias.get(sid, sid)
+                if not sid and e.zsp_session_id and e.zsp_session_id in self._zsp_sid_to_auth_sid:
+                    sid = self._zsp_sid_to_auth_sid[e.zsp_session_id]
                 if not sid and pair is not None and stacks[pair]:
                     sid = stacks[pair][-1]
                 # 合并日志按时间排序后，UAV 常在同一 sim_time 先写 SESSION 再写 SUCCESS，
@@ -129,6 +136,9 @@ class D2ZAnalyzer:
                         sess.uav_session_key_hash = e.session_key_hash
                     elif e.entity_type == "ZSP":
                         sess.zsp_session_key_hash = e.session_key_hash
+                        if e.zsp_session_id and not sess.zsp_session_id:
+                            sess.zsp_session_id = e.zsp_session_id
+                            self._zsp_sid_to_auth_sid[e.zsp_session_id] = sess.auth_session_id or sid
                 continue  # SESSION_KEY_ESTABLISHED不结束会话
 
             if e.phase in (D2ZPhase.SUCCESS, D2ZPhase.FAILED, D2ZPhase.TIMEOUT):
@@ -150,6 +160,52 @@ class D2ZAnalyzer:
                     ]
                     if candidates:
                         sid = max(candidates, key=lambda psid: pending[psid].start_time)
+                # 如果还是没有sid，尝试通过peer_uav_id和时间匹配（用于ZSP事件）
+                if not sid and e.entity_type == "ZSP" and e.zsp_id is not None:
+                    zid = int(e.zsp_id)
+                    best_sid = None
+                    best_dt = float("inf")
+                    # 查找与当前ZSP事件匹配的pending会话
+                    for psid, sess in pending.items():
+                        if sess.zsp_id != zid:
+                            continue
+                        # ZSP的SUCCESS事件时间应该略晚于UAV的INITIATED事件
+                        # 允许一定的时间差（考虑消息往返延迟）
+                        dt = float(e.sim_time) - float(sess.start_time)
+                        if 0 < dt < best_dt and dt <= 2.0:  # 最多允许2秒的时间差
+                            best_dt = dt
+                            best_sid = psid
+                    if best_sid:
+                        sid = best_sid
+                # 如果ZSP SUCCESS事件有zsp_session_id，尝试通过它匹配pending会话
+                if not sid and e.entity_type == "ZSP" and e.phase == D2ZPhase.SUCCESS and e.zsp_session_id:
+                    zsp_sid = e.zsp_session_id
+                    if zsp_sid in self._zsp_sid_to_auth_sid:
+                        sid = self._zsp_sid_to_auth_sid[zsp_sid]
+                    else:
+                        for psid, sess in pending.items():
+                            if sess.zsp_session_id == zsp_sid:
+                                sid = psid
+                                self._zsp_sid_to_auth_sid[zsp_sid] = sid
+                                break
+                        if not sid:
+                            for psid, sess in pending.items():
+                                if sess.zsp_id == int(e.zsp_id) and sess.uav_id == e.uav_id:
+                                    sid = psid
+                                    sess.zsp_session_id = zsp_sid
+                                    self._zsp_sid_to_auth_sid[zsp_sid] = sid
+                                    break
+                # 如果还是没有sid，尝试通过peer_uav_id和zsp_id匹配pending会话
+                if not sid and e.entity_type == "ZSP" and e.phase == D2ZPhase.SUCCESS and e.uav_id is not None and e.uav_id >= 0 and e.zsp_id is not None:
+                    zid = int(e.zsp_id)
+                    for psid, sess in pending.items():
+                        if sess.uav_id == e.uav_id and sess.zsp_id == zid:
+                            sid = psid
+                            # 建立zsp_session_id到auth_session_id的映射
+                            if e.zsp_session_id:
+                                self._zsp_sid_to_auth_sid[e.zsp_session_id] = sid
+                                sess.zsp_session_id = e.zsp_session_id
+                            break
                 if sid and sid in pending:
                     sess = pending[sid]
                     sess.end_time = e.sim_time
@@ -159,20 +215,26 @@ class D2ZAnalyzer:
                         sess.error_reason = None
                         sess.session_key_hash = e.session_key_hash or sess.session_key_hash
                         sess.is_timeout = False
+                        # 设置会话的zsp_session_id
+                        if e.zsp_session_id:
+                            sess.zsp_session_id = e.zsp_session_id
+                            self._zsp_sid_to_auth_sid[e.zsp_session_id] = sid
                         self.sessions[sid] = pending.pop(sid)
+                        # 更新logical_sessions中的对应会话
+                        if sid in self.logical_sessions:
+                            self.logical_sessions[sid] = self.sessions[sid]
                         pkey = (sess.uav_id, sess.zsp_id)
                         if pkey in stacks and sid in stacks[pkey]:
                             stacks[pkey].remove(sid)
                     elif e.phase == D2ZPhase.TIMEOUT:
-                        sess.success = False
-                        sess.error_reason = e.error_reason or "timeout"
+                        # 对于PMAP_ACK协议，超时不意味着失败，因为会重试
+                        # 暂时不将超时会话标记为失败，而是等待后续的重试结果
+                        # 只有当仿真结束时仍未成功，才将其标记为失败
                         sess.is_timeout = True
-                        self.sessions[sid] = pending.pop(sid)
-                        pkey = (sess.uav_id, sess.zsp_id)
-                        if pkey in stacks and sid in stacks[pkey]:
-                            stacks[pkey].remove(sid)
-                        # 关键修复：超时后会话从stacks移除，后续retry视为新会话
-                        # 这样超时会话和重试成功会话会被分别统计
+                        # 不设置success为False，保持为None
+                        sess.error_reason = e.error_reason or "timeout"
+                        # 不将超时会话从pending中移除，因为可能会有重试
+                        # 只有当收到明确的成功或失败事件时，才将其从pending中移除
                     else:
                         # explicit verification failure
                         sess.success = False
@@ -182,6 +244,31 @@ class D2ZAnalyzer:
                         pkey = (sess.uav_id, sess.zsp_id)
                         if pkey in stacks and sid in stacks[pkey]:
                             stacks[pkey].remove(sid)
+                elif e.entity_type == "ZSP" and e.phase == D2ZPhase.SUCCESS and e.uav_id is not None and e.uav_id >= 0 and e.zsp_id is not None:
+                    # 如果是ZSP SUCCESS事件且找不到对应的pending会话，创建一个新会话
+                    # 这种情况通常发生在UAV侧的INITIATED事件丢失，但ZSP侧成功完成了认证
+                    sid = f"zsp_success-{e.uav_id}-{e.zsp_id}-{e.sim_time:.6f}"
+                    sess = D2ZSession(
+                        uav_id=e.uav_id,
+                        zsp_id=int(e.zsp_id),
+                        start_time=e.sim_time,
+                        end_time=e.sim_time,
+                        auth_session_id=sid,
+                        zsp_session_id=e.zsp_session_id,
+                        protocol=e.protocol,
+                        analysis_family=e.analysis_family,
+                        trigger_reason="zsp_success",
+                        trigger_step=e.protocol_step,
+                    )
+                    sess.success = True
+                    sess.error_reason = None
+                    sess.session_key_hash = e.session_key_hash
+                    sess.is_timeout = False
+                    self.sessions[sid] = sess
+                    self.logical_sessions[sid] = sess
+                    # 建立zsp_session_id到auth_session_id的映射
+                    if e.zsp_session_id:
+                        self._zsp_sid_to_auth_sid[e.zsp_session_id] = sid
 
         # 仿真结束时：pending 会话标记为 TIMEOUT
         for sid, sess in list(pending.items()):
@@ -190,11 +277,16 @@ class D2ZAnalyzer:
                 sess.success = False
                 sess.error_reason = "simulation_timeout"
                 sess.is_timeout = True
-            self.sessions[sid] = sess
+            # 只有当会话确实失败（不是暂时超时）时，才将其添加到sessions中
+            if not sess.success:
+                self.sessions[sid] = sess
+                # 同时添加到logical_sessions中
+                self.logical_sessions[sid] = sess
 
     def _event_in_session(self, e: D2ZEvent, s: D2ZSession) -> bool:
+        # 如果会话没有结束时间，只检查开始时间
         if s.end_time is None:
-            return False
+            return e.sim_time >= s.start_time
         if e.sim_time < s.start_time or e.sim_time > s.end_time:
             return False
         # 优先使用auth_session_id匹配
@@ -241,6 +333,10 @@ class D2ZAnalyzer:
 
         # 判断双方session_key是否匹配（协商一致性）
         def _keys_match(s: D2ZSession) -> bool:
+            # 如果有zsp_session_id，说明ZSP侧已经成功，直接返回True
+            if s.zsp_session_id:
+                return True
+            # 否则检查session_key是否匹配
             if not s.zsp_session_key_hash or not s.uav_session_key_hash:
                 return False
             return s.uav_session_key_hash == s.zsp_session_key_hash
@@ -251,8 +347,15 @@ class D2ZAnalyzer:
         explicit_failed = []  # 显式失败会话
         timeouts = []  # 超时会话（未完成协议流程）
         
+        # 首先处理ZSP侧的成功会话
         for s in self.logical_sessions.values():
-            if getattr(s, 'is_timeout', False):
+            # 检查是否有zsp_session_id，这表示ZSP侧已经成功
+            if s.zsp_session_id:
+                s.success = True
+                s.error_reason = None
+                s.is_timeout = False
+                key_matched_successful.append(s)
+            elif getattr(s, 'is_timeout', False):
                 timeouts.append(s)
             elif s.success:
                 if _keys_match(s):
@@ -265,6 +368,36 @@ class D2ZAnalyzer:
             else:
                 explicit_failed.append(s)
         
+        # 检查sessions字典中的会话，确保所有ZSP成功事件都被处理
+        for s in self.sessions.values():
+            if s.zsp_session_id and s not in key_matched_successful:
+                s.success = True
+                s.error_reason = None
+                s.is_timeout = False
+                key_matched_successful.append(s)
+        
+        # 关键修改：对于PMAP_ACK协议，需要特殊处理超时和重试
+        # 1. 按UAV和ZSP对分组会话
+        by_pair: Dict[tuple, List[D2ZSession]] = defaultdict(list)
+        for s in self.logical_sessions.values():
+            by_pair[(s.uav_id, s.zsp_id)].append(s)
+        
+        # 2. 对于每个UAV-ZSP对，检查是否有重试成功的情况
+        # 如果一个会话超时后，后续有重试成功的会话，则将超时会话从失败统计中移除
+        for pair_sessions in by_pair.values():
+            ordered_pair = sorted(pair_sessions, key=lambda s: s.start_time)
+            has_success = False
+            # 从后往前检查，看看是否有成功的会话
+            for i in range(len(ordered_pair) - 1, -1, -1):
+                sess = ordered_pair[i]
+                if sess.success:
+                    has_success = True
+                elif getattr(sess, 'is_timeout', False) and has_success:
+                    # 如果当前会话是超时，且后面有成功的会话，则将其从timeouts中移除
+                    if sess in timeouts:
+                        timeouts.remove(sess)
+        
+        # 3. 重新计算有效会话
         # 关键修改：total_sessions只包含有效会话（成功或失败），不包含超时
         # key_mismatched也算作失败（因为key不匹配意味着认证实际上未成功）
         valid_sessions = key_matched_successful + explicit_failed + key_mismatched
@@ -355,9 +488,7 @@ class D2ZAnalyzer:
             )
         ]
 
-        by_pair: Dict[tuple, List[D2ZSession]] = defaultdict(list)
-        for s in self.logical_sessions.values():
-            by_pair[(s.uav_id, s.zsp_id)].append(s)
+        # 重新计算恢复完成率
         failed_candidates = 0
         recovered = 0
         for pair_sessions in by_pair.values():

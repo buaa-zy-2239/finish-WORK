@@ -100,6 +100,53 @@ def load_runs(results_root: Path) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]
     return out
 
 
+def _aggregate_errors(error_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """聚合错误数据"""
+    if not error_list:
+        return {"total": 0, "M1_errors": 0, "M2_errors": 0, "M3_M4_errors": 0}
+    total = sum(e.get("total", 0) for e in error_list)
+    m1 = sum(e.get("M1_errors", 0) for e in error_list)
+    m2 = sum(e.get("M2_errors", 0) for e in error_list)
+    m3_m4 = sum(e.get("M3_M4_errors", 0) for e in error_list)
+    return {"total": total, "M1_errors": m1, "M2_errors": m2, "M3_M4_errors": m3_m4}
+
+
+def _aggregate_distance_impact(distance_list: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """聚合距离影响数据"""
+    if not distance_list:
+        return []
+    # 合并所有距离区间数据
+    merged = defaultdict(lambda: {"total_sessions": 0, "successful_sessions": 0})
+    for session_list in distance_list:
+        for item in session_list:
+            bucket = item.get("bucket")
+            if bucket:
+                merged[bucket]["total_sessions"] += item.get("total_sessions", 0)
+                merged[bucket]["successful_sessions"] += item.get("successful_sessions", 0)
+    # 计算成功率
+    result = []
+    for bucket, data in sorted(merged.items()):
+        total = data["total_sessions"]
+        successful = data["successful_sessions"]
+        success_rate = (successful / total * 100) if total > 0 else 0
+        result.append({
+            "bucket": bucket,
+            "total_sessions": total,
+            "successful_sessions": successful,
+            "success_rate_percent": success_rate
+        })
+    return result
+
+
+def _aggregate_recovery(recovery_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """聚合恢复性能数据"""
+    if not recovery_list:
+        return {"recovery_completion_ratio": 0.0, "retry_successes": 0}
+    ratio = sum(r.get("recovery_completion_ratio", 0.0) for r in recovery_list) / len(recovery_list)
+    retry_successes = sum(r.get("reauthentication_cost", {}).get("retry_successes", 0) for r in recovery_list)
+    return {"recovery_completion_ratio": ratio, "retry_successes": retry_successes}
+
+
 def aggregate(
     runs: List[Tuple[Dict[str, Any], Dict[str, Any]]],
     filter_density: Optional[int] = None,
@@ -108,6 +155,11 @@ def aggregate(
     # key -> list of success_rate_percent
     by_cell: DefaultDict[str, List[float]] = defaultdict(list)
     by_cell_duration: DefaultDict[str, List[float]] = defaultdict(list)
+    by_cell_errors: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    by_cell_distance: DefaultDict[str, List[List[Dict[str, Any]]]] = defaultdict(list)
+    by_cell_recovery: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    by_cell_timeout: DefaultDict[str, List[int]] = defaultdict(list)
+    by_cell_key_mismatch: DefaultDict[str, List[int]] = defaultdict(list)
     cell_meta: Dict[str, Dict[str, Any]] = {}
 
     for meta, rec in runs:
@@ -126,9 +178,30 @@ def aggregate(
         )
         by_cell[key].append(float(sr))
         cell_meta[key] = meta
+        
+        # 聚合延迟数据
         dur = _nested_float(rec, "analysis", "analyzer_summary", "timing", "avg_duration_seconds")
         if dur is not None:
             by_cell_duration[key].append(dur)
+        
+        # 聚合错误数据
+        errors = (rec.get("analysis") or {}).get("analyzer_summary", {}).get("errors") or {}
+        if errors:
+            by_cell_errors[key].append(errors)
+        
+        # 聚合距离影响数据
+        success_vs_distance = (rec.get("analysis") or {}).get("analyzer_summary", {}).get("mechanism", {}).get("success_vs_distance")
+        if success_vs_distance:
+            by_cell_distance[key].append(success_vs_distance)
+        
+        # 聚合恢复性能数据
+        mechanism = (rec.get("analysis") or {}).get("analyzer_summary", {}).get("mechanism") or {}
+        if mechanism:
+            by_cell_recovery[key].append(mechanism)
+        
+        # 聚合超时和密钥不匹配数据
+        by_cell_timeout[key].append(auth.get("timeout", 0))
+        by_cell_key_mismatch[key].append(auth.get("key_mismatch_sessions", 0))
 
     summaries: Dict[str, Any] = {}
     for key, vals in by_cell.items():
@@ -136,6 +209,11 @@ def aggregate(
             "meta": cell_meta[key],
             "success_rate_percent": _ci_summary(vals),
             "avg_duration_seconds": _ci_summary(by_cell_duration.get(key, [])),
+            "errors": _aggregate_errors(by_cell_errors.get(key, [])),
+            "distance_impact": _aggregate_distance_impact(by_cell_distance.get(key, [])),
+            "recovery": _aggregate_recovery(by_cell_recovery.get(key, [])),
+            "timeout_sessions": sum(by_cell_timeout.get(key, [])),
+            "key_mismatch_sessions": sum(by_cell_key_mismatch.get(key, [])),
         }
 
     return {"cells": summaries, "n_raw_runs": len(runs)}
@@ -165,6 +243,59 @@ def build_chart_payload_for_metric(
         if mean is None or margin is None or (isinstance(mean, float) and math.isnan(mean)):
             continue
         data[proto][n] = {"mean": float(mean), "ci_95_margin": float(margin)}
+    return dict(data)
+
+
+def build_chart_payload_for_errors(
+    summaries: Dict[str, Any],
+    motion: str,
+    rho: int,
+    gm_stress: str,
+) -> Dict[str, Dict[str, int]]:
+    """TopTierChartGenerator.plot_error_distribution 所需结构"""
+    data: Dict[str, Dict[str, int]] = defaultdict(dict)
+    prefix = f"{motion}|"
+    mid = f"|rho={rho}|"
+    suffix = f"|gm={gm_stress}|"
+    for key, block in summaries["cells"].items():
+        if not key.startswith(prefix) or mid not in key or suffix not in key:
+            continue
+        meta = block["meta"]
+        proto = meta["proto"]
+        errors = block.get("errors", {})
+        timeout = block.get("timeout_sessions", 0)
+        key_mismatch = block.get("key_mismatch_sessions", 0)
+        
+        error_data = {
+            "Timeout": timeout,
+            "Key Mismatch": key_mismatch,
+            "M1 Errors": errors.get("M1_errors", 0),
+            "M2 Errors": errors.get("M2_errors", 0),
+            "M3/M4 Errors": errors.get("M3_M4_errors", 0)
+        }
+        data[proto] = error_data
+    return dict(data)
+
+
+def build_chart_payload_for_distance(
+    summaries: Dict[str, Any],
+    motion: str,
+    rho: int,
+    gm_stress: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """TopTierChartGenerator.plot_distance_impact 所需结构"""
+    data: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    prefix = f"{motion}|"
+    mid = f"|rho={rho}|"
+    suffix = f"|gm={gm_stress}|"
+    for key, block in summaries["cells"].items():
+        if not key.startswith(prefix) or mid not in key or suffix not in key:
+            continue
+        meta = block["meta"]
+        proto = meta["proto"]
+        distance_impact = block.get("distance_impact", [])
+        if distance_impact:
+            data[proto] = distance_impact
     return dict(data)
 
 
@@ -203,6 +334,7 @@ def main() -> int:
         for rho in rhos:
             for gm in gm_list:
                 base = f"scalability_{motion}_rho{rho}_gm{gm}"
+                # 生成可扩展性曲线
                 payload_sr = build_chart_payload_for_metric(
                     blob, motion, rho, gm, "success_rate_percent"
                 )
@@ -228,6 +360,41 @@ def main() -> int:
                         filename=f"{base}_avg_duration",
                     )
                     print(f"[ok] chart {base}_avg_duration.pdf")
+                
+                # 生成错误分布图表
+                payload_errors = build_chart_payload_for_errors(
+                    blob, motion, rho, gm
+                )
+                if payload_errors:
+                    gen.plot_error_distribution(
+                        payload_errors,
+                        title=f"Error Distribution ({motion}, ρ={rho} UAV/km², GM={gm})",
+                        filename=f"error_distribution_{motion}_rho{rho}_gm{gm}"
+                    )
+                    print(f"[ok] chart error_distribution_{motion}_rho{rho}_gm{gm}.pdf")
+                
+                # 生成距离影响图表
+                payload_distance = build_chart_payload_for_distance(
+                    blob, motion, rho, gm
+                )
+                if payload_distance:
+                    gen.plot_distance_impact(
+                        payload_distance,
+                        title=f"Distance Impact ({motion}, ρ={rho} UAV/km², GM={gm})",
+                        filename=f"distance_impact_{motion}_rho{rho}_gm{gm}"
+                    )
+                    print(f"[ok] chart distance_impact_{motion}_rho{rho}_gm{gm}.pdf")
+                
+                # 生成综合仪表盘
+                gen.plot_multi_metric_dashboard(
+                    blob,
+                    motion=motion,
+                    rho=rho,
+                    gm_stress=gm,
+                    title=f"Scalability Dashboard ({motion}, ρ={rho} UAV/km², GM={gm})",
+                    filename=f"dashboard_{motion}_rho{rho}_gm{gm}"
+                )
+                print(f"[ok] chart dashboard_{motion}_rho{rho}_gm{gm}.pdf")
 
     return 0
 

@@ -7,6 +7,7 @@ const API_BASE = 'http://localhost:8000/api/v1';
 export const AnalysisDashboard = () => {
   const [metrics, setMetrics] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [groupedSessions, setGroupedSessions] = useState({});
   const [events, setEvents] = useState([]);
   const [selectedSession, setSelectedSession] = useState(null);
   const [timeline, setTimeline] = useState([]);
@@ -33,10 +34,38 @@ export const AnalysisDashboard = () => {
       }
 
       if (results[1].status === 'fulfilled') {
-        setSessions(results[1].value.data.sessions || []);
+        const sessionData = results[1].value.data.sessions || [];
+        setSessions(sessionData);
+        
+        // 按UAV-ZSP对分组，并按时间顺序排序
+        const grouped = sessionData.reduce((acc, session) => {
+          const key = `${session.uav_id}-${session.zsp_id}`;
+          if (!acc[key]) {
+            acc[key] = {
+              uavId: session.uav_id,
+              zspId: session.zsp_id,
+              sessions: []
+            };
+          }
+          acc[key].sessions.push(session);
+          return acc;
+        }, {});
+        
+        // 对每个分组内的会话按时间顺序排序
+        Object.values(grouped).forEach(group => {
+          group.sessions.sort((a, b) => {
+            // 尝试使用不同的时间字段进行排序
+            const timeA = a.start_time || a.sim_time || 0;
+            const timeB = b.start_time || b.sim_time || 0;
+            return timeA - timeB;
+          });
+        });
+        
+        setGroupedSessions(grouped);
       } else {
         console.error('Failed to load sessions:', results[1].reason);
         setSessions([]);
+        setGroupedSessions({});
       }
 
       if (results[2].status === 'fulfilled') {
@@ -293,51 +322,54 @@ export const AnalysisDashboard = () => {
             <small>运行仿真后填写任务 ID 或查看默认日志目录</small>
           </div>
         ) : (
-          <table className="sessions-table">
-            <thead>
-              <tr>
-                <th>会话 ID</th>
-                <th>UAV</th>
-                <th>ZSP</th>
-                <th>状态</th>
-                <th>触发来源</th>
-                <th>耗时 (s)</th>
-                <th>消息数</th>
-                <th>字节</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((session, idx) => (
-                <tr key={session.session_id || idx} className={session.success ? 'success-row' : 'error-row'}>
-                  <td className="session-id-cell" title={session.session_id}>
-                    {(session.session_id || '').slice(0, 12)}
-                    {(session.session_id || '').length > 12 ? '…' : ''}
-                  </td>
-                  <td>{session.uav_id}</td>
-                  <td>{session.zsp_id}</td>
-                  <td>
-                    <span className={`status-badge ${session.success ? 'success' : 'error'}`}>
-                      {session.success ? '成功' : '失败'}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="trigger-badge" title={session.trigger_step || ''}>
-                      {formatTriggerLabel(session.trigger_reason)}
-                    </span>
-                  </td>
-                  <td>{formatNumber(session.duration_seconds)}</td>
-                  <td>{session.message_count}</td>
-                  <td>{session.total_bytes ?? 0}</td>
-                  <td>
-                    <button onClick={() => handleViewSessionTimeline(session)} className="timeline-btn">
-                      时间线
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="grouped-sessions">
+            {Object.values(groupedSessions).map((group) => (
+              <div key={`${group.uavId}-${group.zspId}`} className="session-group">
+                <h3>UAV {group.uavId} ↔ ZSP {group.zspId}</h3>
+                <table className="sessions-table">
+                  <thead>
+                    <tr>
+                      <th>会话 ID</th>
+                      <th>状态</th>
+                      <th>触发来源</th>
+                      <th>耗时 (s)</th>
+                      <th>消息数</th>
+                      <th>字节</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.sessions.map((session, idx) => (
+                      <tr key={session.session_id || idx} className={session.success ? 'success-row' : session.is_timeout ? 'warning-row' : 'error-row'}>
+                        <td className="session-id-cell" title={session.session_id}>
+                          {(session.session_id || '').slice(0, 12)}
+                          {(session.session_id || '').length > 12 ? '…' : ''}
+                        </td>
+                        <td>
+                          <span className={`status-badge ${session.success ? 'success' : session.is_timeout ? 'warning' : 'error'}`}>
+                            {session.success ? '成功' : session.is_timeout ? '超时' : '失败'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="trigger-badge" title={session.trigger_step || ''}>
+                            {formatTriggerLabel(session.trigger_reason)}
+                          </span>
+                        </td>
+                        <td>{formatNumber(session.duration_seconds)}</td>
+                        <td>{session.message_count}</td>
+                        <td>{session.total_bytes ?? 0}</td>
+                        <td>
+                          <button onClick={() => handleViewSessionTimeline(session)} className="timeline-btn">
+                            时间线
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -375,6 +407,11 @@ export const AnalysisDashboard = () => {
                         sid…
                       </span>
                     )}
+                    {event.warning_type === 'uplink_loss_injected' && event.message_type && (
+                      <span className="msg-type loss-event" title="丢包事件">
+                        丢包: {event.message_type}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -401,6 +438,51 @@ export const AnalysisDashboard = () => {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="metrics-section">
+        <h2>机动应力分析</h2>
+        {metrics?.mechanism?.recovery_completion_ratio !== undefined && (
+          <div className="metrics-grid">
+            <div className="metric-card">
+              <h3>恢复性能</h3>
+              <div className="metric-item">
+                <span className="label">恢复完成率：</span>
+                <span className="value">
+                  {formatNumber((metrics.mechanism.recovery_completion_ratio || 0) * 100)}%
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重试成功率：</span>
+                <span className="value">
+                  {formatNumber((metrics.mechanism.reauthentication_cost?.retry_successes || 0))}
+                </span>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <h3>移动性影响</h3>
+              <div className="metric-item">
+                <span className="label">平均速度：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.mobility_metrics?.avg_speed_mps || 0)} m/s
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">最大速度：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.mobility_metrics?.max_speed_mps || 0)} m/s
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">平均加速度：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.mobility_metrics?.avg_acceleration_mps2 || 0)} m/s²
+                </span>
+              </div>
+            </div>
           </div>
         )}
       </div>

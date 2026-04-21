@@ -98,6 +98,27 @@ h2 {
   margin-top: 20px;
 }
 
+.grouped-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.session-group {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.session-group h3 {
+  color: #667eea;
+  margin-bottom: 15px;
+  font-size: 1.3em;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 8px;
+}
+
 .sessions-table th {
   background: #f8f9fa;
   color: #333;
@@ -124,6 +145,10 @@ h2 {
   background-color: #fef5f5;
 }
 
+.sessions-table tr.warning-row {
+  background-color: #fff8e1;
+}
+
 .status-badge {
   display: inline-block;
   padding: 6px 12px;
@@ -140,6 +165,11 @@ h2 {
 .status-badge.error {
   background: #ffebee;
   color: #c62828;
+}
+
+.status-badge.warning {
+  background: #fff3e0;
+  color: #ef6c00;
 }
 
 .timeline-btn {
@@ -206,6 +236,12 @@ h2 {
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 0.85em;
+}
+
+.msg-type.loss-event {
+  background: #fee2e2;
+  color: #dc2626;
+  font-weight: bold;
 }
 
 .msg-size {

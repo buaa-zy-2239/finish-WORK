@@ -6,6 +6,7 @@
 import json
 import glob
 import os
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from .event_models import D2ZEvent, D2ZPhase
@@ -68,9 +69,16 @@ class D2ZLogParser:
             pu = peer_uav
             if pu is None and details.get("peer_id") is not None:
                 pu = details.get("peer_id")
+            # 尝试从details中获取peer_uav_id
             if pu is not None:
                 try:
                     uav_id = int(pu)
+                except (TypeError, ValueError):
+                    uav_id = -1
+            # 对于SESSION_ESTABLISHED事件，尝试从peer_id获取uav_id
+            if uav_id < 0 and details.get("peer_id") is not None:
+                try:
+                    uav_id = int(details.get("peer_id"))
                 except (TypeError, ValueError):
                     uav_id = -1
             return uav_id, zsp_id
@@ -99,6 +107,7 @@ class D2ZLogParser:
         error_reason: Optional[str] = None
         session_key_hash: Optional[str] = None
         auth_session_id = details.get("auth_session_id")
+        zsp_session_id = details.get("zsp_session_id")
         flow = details.get("flow")
         protocol = details.get("protocol")
         analysis_family = details.get("analysis_family")
@@ -193,6 +202,7 @@ class D2ZLogParser:
             error_reason=error_reason,
             session_key_hash=session_key_hash,
             auth_session_id=auth_session_id,
+            zsp_session_id=zsp_session_id,
             flow=flow,
             protocol=protocol,
             analysis_family=analysis_family,
@@ -209,25 +219,28 @@ class D2ZLogParser:
     def enrich_auth_session_ids(events: List[D2ZEvent]) -> None:
         """
         将 UAV 在 INITIATED 中产生的 auth_session_id 关联到同一 (uav_id, zsp_id) 的后续事件
-        （含 ZSP 侧日志）。新一轮认证由新的 INITIATED 覆盖映射。
+        （含 ZSP 侧日志）。使用栈结构管理多个进行中的会话，确保按时间顺序正确匹配。
         """
         ordered = sorted(events, key=lambda e: (e.sim_time, e.timestamp))
-        open_sid: Dict[Tuple[int, int], str] = {}
-
-        def pair_key(ev: D2ZEvent) -> Optional[Tuple[int, int]]:
-            if ev.uav_id is None or ev.uav_id < 0 or ev.zsp_id is None:
-                return None
-            return (ev.uav_id, int(ev.zsp_id))
+        pending_sessions: Dict[Tuple[int, int], List[Tuple[str, float]]] = defaultdict(list)
 
         for e in ordered:
-            pk = pair_key(e)
-            if pk is None:
-                continue
-            if e.phase == D2ZPhase.INITIATED and e.auth_session_id:
-                open_sid[pk] = e.auth_session_id
-                continue
-            if e.auth_session_id is None and pk in open_sid:
-                e.auth_session_id = open_sid[pk]
+            if e.entity_type == "UAV" and e.phase == D2ZPhase.INITIATED and e.auth_session_id:
+                if e.uav_id >= 0 and e.zsp_id is not None:
+                    pk = (e.uav_id, int(e.zsp_id))
+                    pending_sessions[pk].append((e.auth_session_id, e.sim_time))
+
+            elif e.entity_type == "ZSP" and e.zsp_id is not None and e.uav_id >= 0:
+                if e.auth_session_id:
+                    continue
+                pk = (e.uav_id, int(e.zsp_id))
+                if not pending_sessions[pk]:
+                    continue
+                candidates = [(sid, start_t) for sid, start_t in pending_sessions[pk]
+                             if e.sim_time >= start_t]
+                if candidates:
+                    best_sid, _ = min(candidates, key=lambda x: x[1])
+                    e.auth_session_id = best_sid
 
     @staticmethod
     def parse_file(file_path: str) -> List[D2ZEvent]:

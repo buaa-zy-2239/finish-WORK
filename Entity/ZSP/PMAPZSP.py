@@ -1,6 +1,7 @@
 import struct
 import random
 import hashlib
+import uuid
 from collections import defaultdict
 from typing import Optional
 from ns import ns
@@ -23,6 +24,7 @@ class D2Z_Session:
         self.ns = None
         self.from_addr = None
         self.session_key = None
+        self.zsp_session_id = str(uuid.uuid4())
 
 
 class D2D_Session:
@@ -218,13 +220,11 @@ class PMAP_ZSP(BaseZSP):
             if not st:
                 continue
             new_pid = st.get("new_pid")
-            # If transition expired without confirmation, keep old PID path and drop new alias.
-            # 若 old 仍在库中，则 UAV 侧未确认（典型：未收到 ACK）；此时删除 new 别名。
-            # 若 old 已不在（例如已因 M1 提交被移除），则保留 new，避免误删 UAV 已采用的 PID。
-            if old_pid in self.uav_db and new_pid in self.uav_db:
-                self.uav_db.pop(new_pid, None)
+            # 不再自动删除任何PID，而是等待实际使用时再清理
+            # 只有当其中一个PID开始使用时，才删除另一个PID
+            # 这样可以避免因窗口过期导致的PID不同步问题
             self.logger.log_warning(
-                "PMAP_ACK transition window expired; keep old PID active",
+                "PMAP_ACK transition window expired; both PIDs remain active until one is used",
                 warning_type="d2z_ack_transition_expired",
                 extra={
                     "protocol": self.protocol_name,
@@ -281,33 +281,59 @@ class PMAP_ZSP(BaseZSP):
         当 M1 的 pid 等于某条待决过渡里的 new_pid 时，视为 UAV 已在带内用新身份续握手，
         提交 old->new（移除旧 PID 记录、清 pending）。注意 new_pid 早已在 `_stage_ack_transition`
         写入 uav_db，故不能再用「pid 不在库中」作为触发条件。
+        
+        同时处理另一种情况：当 M1 的 pid 是旧PID时，说明UAV仍在使用旧PID，应清理新PID
         """
+        # 检查是否是新PID被使用
         for old_pid, st in list(self._ack_pending_transition.items()):
             new_pid = st.get("new_pid")
-            if pid != new_pid:
-                continue
-            if old_pid in self.uav_db:
-                self.uav_db.pop(old_pid, None)
-            if self.enable_blockchain and self.blockchain:
-                try:
-                    self.blockchain.update_pid(old_pid, new_pid, st["challenge"], st["response"])
-                except Exception:
-                    pass
-            self._ack_pending_transition.pop(old_pid, None)
-            self.logger.log_warning(
-                "PMAP_ACK transition committed after observing new PID traffic",
-                warning_type="d2z_ack_transition_commit",
-                extra={
-                    "protocol": self.protocol_name,
-                    "analysis_family": self.analysis_family,
-                    "flow": "D2Z",
-                    "peer_zsp_id": self.zsp_id,
-                    "protocol_step": "D2Z_ACK_DUAL_PID_COMMIT",
-                    "old_pid": old_pid,
-                    "new_pid": new_pid,
-                },
-            )
-            return True
+            if pid == new_pid:
+                # 新PID被使用，清理旧PID
+                if old_pid in self.uav_db:
+                    self.uav_db.pop(old_pid, None)
+                if self.enable_blockchain and self.blockchain:
+                    try:
+                        self.blockchain.update_pid(old_pid, new_pid, st["challenge"], st["response"])
+                    except Exception:
+                        pass
+                self._ack_pending_transition.pop(old_pid, None)
+                self.logger.log_warning(
+                    "PMAP_ACK transition committed after observing new PID traffic",
+                    warning_type="d2z_ack_transition_commit",
+                    extra={
+                        "protocol": self.protocol_name,
+                        "analysis_family": self.analysis_family,
+                        "flow": "D2Z",
+                        "peer_zsp_id": self.zsp_id,
+                        "protocol_step": "D2Z_ACK_DUAL_PID_COMMIT",
+                        "old_pid": old_pid,
+                        "new_pid": new_pid,
+                    },
+                )
+                return True
+        
+        # 检查是否是旧PID被使用
+        for old_pid, st in list(self._ack_pending_transition.items()):
+            new_pid = st.get("new_pid")
+            if pid == old_pid:
+                # 旧PID被使用，清理新PID
+                if new_pid in self.uav_db:
+                    self.uav_db.pop(new_pid, None)
+                self._ack_pending_transition.pop(old_pid, None)
+                self.logger.log_warning(
+                    "PMAP_ACK transition cancelled after observing old PID traffic",
+                    warning_type="d2z_ack_transition_cancelled",
+                    extra={
+                        "protocol": self.protocol_name,
+                        "analysis_family": self.analysis_family,
+                        "flow": "D2Z",
+                        "peer_zsp_id": self.zsp_id,
+                        "protocol_step": "D2Z_ACK_DUAL_PID_CANCEL",
+                        "old_pid": old_pid,
+                        "new_pid": new_pid,
+                    },
+                )
+                return True
         return False
 
     # =========================================================
@@ -553,7 +579,7 @@ class PMAP_ZSP(BaseZSP):
             AuthenticationPhase.SUCCESS,
             success=True,
             peer_id=self.uav_db[new_pid].get("uav_id"),
-            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SUCCESS"},
+            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SUCCESS", "zsp_session_id": session.zsp_session_id},
         )
         self._note_d2z_success_for_desync_counter(new_pid)
 
@@ -582,7 +608,7 @@ class PMAP_ZSP(BaseZSP):
             AuthenticationPhase.SUCCESS,
             success=True,
             peer_id=self.uav_db[new_pid].get("uav_id"),
-            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SUCCESS"},
+            extra={**self._d2z_ctx(new_pid), "protocol_step": "D2Z_SUCCESS", "zsp_session_id": session.zsp_session_id},
         )
         self._note_d2z_success_for_desync_counter(new_pid)
 

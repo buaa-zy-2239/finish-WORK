@@ -126,6 +126,52 @@ class PMAP_UAV(BaseUAV):
         super().StartApplication()
 
 
+    def _send_M1_after_M2_timeout(self):
+        self._refresh_attempt_scope()
+        max_attempts = self._max_d2z_attempts()
+        if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
+            self.logger.log_warning(
+                "D2Z retry budget exhausted; skip new M1",
+                warning_type="d2z_retry_budget_exhausted",
+                extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
+            )
+            return
+        self._d2z_attempt_counter += 1
+
+        self.ni = random.random()
+        plaintext = PMAPPlaintext.encode(
+            PMAPPlaintext.M1,
+            self.pid,
+            self.zsp_id,
+            self.ni
+        )
+        
+        encrypted = self.chaotic.encrypt_by_crp(
+            plaintext,
+            self.crp
+        )
+        mac_input = encrypted + struct.pack(">d", self.ni)
+        packet = PMAPPacket.build(
+            PMAPMessageType.M1,
+            self.pid,
+            encrypted,
+            mac_input
+        )
+        
+        ex = self._d2z_log_extra("D2Z_M1_SEND")
+
+        if not self.SendData(packet, "M1"):
+            self.logger.log_warning(
+                "M1 dropped, aborting this authentication round",
+                warning_type="uplink_loss_abort",
+                extra=self._d2z_log_extra("D2Z_M1_DROPPED"),
+            )
+            # M1丢包时，不进行重试，等待下一次认证触发（由M2超时或下一轮认证触发）
+            return
+
+        self.logger.log_message_sent("M1", len(packet), extra=ex)
+
+
     # =========================================================
     # D2Z Initiate (M1)
     # =========================================================
@@ -163,9 +209,17 @@ class PMAP_UAV(BaseUAV):
         )
         
         ex = self._d2z_log_extra("D2Z_M1_SEND")
-        self.logger.log_message_sent("M1", len(packet), extra=ex)
 
-        self.SendData(packet)
+        if not self.SendData(packet, "M1"):
+            self.logger.log_warning(
+                "M1 dropped, aborting this authentication round",
+                warning_type="uplink_loss_abort",
+                extra=self._d2z_log_extra("D2Z_M1_DROPPED"),
+            )
+            # M1丢包时，不进行重试，等待下一次认证触发
+            return
+
+        self.logger.log_message_sent("M1", len(packet), extra=ex)
 
 
     # =========================================================
@@ -212,7 +266,7 @@ class PMAP_UAV(BaseUAV):
         self.logger.log_message_sent("D2D M1/2", len(packet))
         self.logger.log_authentication(AuthenticationPhase.MESSAGE_SENT)
 
-        self.SendData(packet)
+        self.SendData(packet, "D2D M1/2")
 
 
 
@@ -354,7 +408,7 @@ class PMAP_UAV(BaseUAV):
                     mac_input
                 )
 
-                self.SendData(packet)
+                self.SendData(packet, "D2D M4/5")
 
 
             # -----------------------------------------------------
@@ -429,7 +483,7 @@ class PMAP_UAV(BaseUAV):
                     mac_input
                 )
 
-                self.SendData(packet)
+                self.SendData(packet, "D2D M9/10")
                 self.crp = [challenge, response]
                 _old_pid = self.pid
                 self.pid = hash_256(str(self.id) + str(response))
@@ -506,6 +560,25 @@ class PMAP_UAV(BaseUAV):
             )
 
 
+
+    def _on_d2z_m34_aborted(self):
+        max_attempts = self._max_d2z_attempts()
+        if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
+            self.logger.log_warning(
+                "M3_M4 dropped and retry budget exhausted",
+                warning_type="d2z_retry_budget_exhausted",
+                extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
+            )
+            self.logger.log_authentication(
+                AuthenticationPhase.TIMEOUT,
+                success=False,
+                peer_id=self.zsp_id,
+                extra=self._d2z_log_extra("D2Z_TIMEOUT"),
+            )
+            return
+        self._d2z_attempt_counter += 1
+        delay = self.attack_model.get("d2z_retry_delay_s", 0.5)
+        self._safe_schedule(delay, self._send_M1_after_M2_timeout)
 
     # =========================================================
     # Send M3 M4
@@ -722,7 +795,14 @@ class PMAP_UAV(BaseUAV):
                 enc3+enc4,
                 mac_input
             )
-            self.SendData(packet)
+            if not self.SendData(packet, "M3_M4"):
+                self.logger.log_warning(
+                    "M3_M4 dropped, aborting this authentication round",
+                    warning_type="uplink_loss_abort",
+                    extra=self._d2z_log_extra("D2Z_M3_M4_DROPPED"),
+                )
+                self._on_d2z_m34_aborted()
+                return
 
             self.logger.log_message_sent(
                 "M3_M4",
@@ -799,6 +879,9 @@ class PMAP_UAV(BaseUAV):
         if self.d2z_ack_mode:
             return
         if not self.attack_model.get("intercept_m3_m4_delivery"):
+            return
+        # 如果已经认证成功，就不再模拟超时
+        if self.authenticated:
             return
         self.authenticated = False
         self.d2z_auth_session_id = str(uuid.uuid4())
