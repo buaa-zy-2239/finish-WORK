@@ -25,6 +25,8 @@ class D2Z_Session:
         self.from_addr = None
         self.session_key = None
         self.zsp_session_id = str(uuid.uuid4())
+        self.subsession_id = None  # 子会话ID，用于区分不同的重试会话
+        self.auth_session_id = None  # UAV侧的auth_session_id，用于关联UAV和ZSP的事件
 
 
 class D2D_Session:
@@ -393,10 +395,14 @@ class PMAP_ZSP(BaseZSP):
         self._cleanup_expired_ack_transitions()
 
         ctx = self._d2z_ctx(pid)
+        # 子会话ID将由log_parser通过关联UAV侧事件来设置
+        # 这里暂时使用None，log_parser会在后续处理中关联正确的子会话ID
+        subsession_id = None
+        
         self.logger.log_message_received(
             "M1",
             wire_len,
-            extra={**ctx, "protocol_step": "D2Z_M1_RECV"},
+            extra={**ctx, "protocol_step": "D2Z_M1_RECV", "subsession_id": subsession_id},
         )
 
         if pid not in self.uav_db:
@@ -446,6 +452,7 @@ class PMAP_ZSP(BaseZSP):
         session.ni = ni
         session.ns = ns
         session.from_addr = from_addr
+        session.subsession_id = subsession_id  # 存储子会话ID
 
         self.D2Z_sessions[pid] = session
 
@@ -466,7 +473,7 @@ class PMAP_ZSP(BaseZSP):
         self.logger.log_message_sent(
             "M2",
             len(packet),
-            extra={**self._d2z_ctx(pid), "protocol_step": "D2Z_M2_SEND"},
+            extra={**self._d2z_ctx(pid), "protocol_step": "D2Z_M2_SEND", "subsession_id": subsession_id},
         )
 
     # =========================================================
@@ -502,11 +509,26 @@ class PMAP_ZSP(BaseZSP):
         enc3 = payload[:m3_size]
         enc4 = payload[m3_size:m3_size + m4_size]
 
-        plain3 = self.chaotic.decrypt_by_crp(enc3, crp)
-        plain4 = self.chaotic.decrypt_by_crp(enc4, crp)
+        try:
+            plain3 = self.chaotic.decrypt_by_crp(enc3, crp)
+            plain4 = self.chaotic.decrypt_by_crp(enc4, crp)
 
-        m3 = PMAP.decode(PMAP.M3, plain3)
-        m4 = PMAP.decode(PMAP.M4, plain4)
+            m3 = PMAP.decode(PMAP.M3, plain3)
+            m4 = PMAP.decode(PMAP.M4, plain4)
+        except Exception as e:
+            # 记录认证失败事件，设置错误原因为decrypt_failed
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=self.uav_db[pid].get("uav_id"),
+                extra={**ctx, "protocol_step": "D2Z_M3_M4_FAIL_DECRYPT", "error_reason": "decrypt_failed"},
+            )
+            self.logger.log_error(
+                f"D2Z M3/M4 decrypt failed: {e}",
+                error_type="d2z_m3_m4_decrypt",
+                extra={**ctx, "protocol_step": "D2Z_M3_M4_FAIL_DECRYPT", "error_reason": "decrypt_failed"},
+            )
+            return
 
         ni = m3[3]
         response = m4[4]

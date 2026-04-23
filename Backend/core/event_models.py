@@ -19,6 +19,7 @@ class D2ZPhase(Enum):
     M2_SENT = "M2_sent"
     M2_RECEIVED = "M2_received"
     M3_M4_SENT = "M3_M4_sent"
+    ACK_RECEIVED = "ack_received"  # ACK message received by UAV from ZSP
     SESSION_KEY_ESTABLISHED = "session_key_established"
     SUCCESS = "success"
     FAILED = "failed"          # explicit verification failure (MAC fail, key mismatch, PID invalid, decryption error)
@@ -39,6 +40,8 @@ class D2ZEvent:
     error_reason: Optional[str] = None
     session_key_hash: Optional[str] = None
     auth_session_id: Optional[str] = None
+    current_session_id: Optional[str] = None  # 当前会话ID，用于会话内重试
+    subsession_id: Optional[int] = None  # 子会话ID，用于区分不同的重试会话
     zsp_session_id: Optional[str] = None
     flow: Optional[str] = None
     protocol: Optional[str] = None
@@ -50,6 +53,7 @@ class D2ZEvent:
     link_zone: Optional[str] = None
     block_reason: Optional[str] = None
     is_timeout: bool = False   # new field to distinguish timeout from explicit failure
+    session_result: Optional[str] = None  # new field to indicate session result: success, timeout, failed
 
     @property
     def datetime_str(self) -> str:
@@ -69,6 +73,8 @@ class D2ZEvent:
             "error_reason": self.error_reason,
             "session_key_hash": self.session_key_hash,
             "auth_session_id": self.auth_session_id,
+            "current_session_id": self.current_session_id,  # 当前会话ID，用于会话内重试
+            "subsession_id": self.subsession_id,  # 子会话ID，用于区分不同的重试会话
             "zsp_session_id": self.zsp_session_id,
             "flow": self.flow,
             "protocol": self.protocol,
@@ -79,6 +85,7 @@ class D2ZEvent:
             "link_zone": self.link_zone,
             "block_reason": self.block_reason,
             "is_timeout": self.is_timeout,
+            "session_result": self.session_result,
         }
 
 
@@ -90,13 +97,14 @@ class D2ZSession:
     start_time: float
     end_time: Optional[float]
     auth_session_id: Optional[str] = None
+    current_session_id: Optional[str] = None  # 当前会话ID，用于会话内重试
     zsp_session_id: Optional[str] = None
     total_events: int = 0
     message_count: int = 0
     m1_size: int = 0
     m2_size: int = 0
     m3_m4_size: int = 0
-    success: bool = False
+    success: Optional[bool] = None
     error_reason: Optional[str] = None
     session_key_hash: Optional[str] = None
     uav_session_key_hash: Optional[str] = None  # UAV视角的session key
@@ -109,6 +117,15 @@ class D2ZSession:
     init_rssi: Optional[float] = None
     init_link_zone: Optional[str] = None
     is_timeout: bool = False
+    session_result: Optional[str] = None  # new field to indicate session result: success, timeout, failed
+    dropped_packets: Dict[str, int] = None  # 会话中的丢弃报文统计
+    subsession_states: Dict[int, str] = None  # 子会话状态映射 {subsession_id: state}
+
+    def __post_init__(self) -> None:
+        if self.dropped_packets is None:
+            self.dropped_packets = {"M1": 0, "M2": 0, "M3_M4": 0, "total": 0}
+        if self.subsession_states is None:
+            self.subsession_states = {}
 
     @property
     def duration(self) -> float:
@@ -125,6 +142,7 @@ class D2ZSession:
         return {
             "session_id": sid,
             "auth_session_id": self.auth_session_id,
+            "current_session_id": self.current_session_id,  # 当前会话ID，用于会话内重试
             "zsp_session_id": self.zsp_session_id,
             "uav_id": self.uav_id,
             "zsp_id": self.zsp_id,
@@ -151,6 +169,9 @@ class D2ZSession:
             "init_rssi": self.init_rssi,
             "init_link_zone": self.init_link_zone,
             "is_timeout": self.is_timeout,
+            "session_result": self.session_result,
+            "dropped_packets": self.dropped_packets or {"M1": 0, "M2": 0, "M3_M4": 0, "total": 0},
+            "subsession_states": self.subsession_states or {},  # 子会话状态
         }
 
 
@@ -184,6 +205,9 @@ class D2ZMetrics:
     session_completion_rate: float = 0.0  # 同success_rate，但命名更准确
     protocol_correctness_rate: float = 0.0  # 同protocol_success_rate，强调正确性
     key_mismatch_sessions: int = 0  # 双方session_key不匹配的"虚假成功"会话数
+    dropped_packets: Dict[str, int] = None  # 未识别会话中的丢弃报文统计
+    dropped_packets_by_pair: Dict[str, Dict[str, int]] = None  # 按UAV-ZSP对统计的丢弃报文
+    unidentified_dropped_packets: List[Dict[str, Any]] = None  # 未识别会话的丢弃报文详细信息
 
     # 新增：Scalability & Topology Dynamics 指标
     handover_count: int = 0  # ZSP切换次数
@@ -200,6 +224,12 @@ class D2ZMetrics:
             self.success_vs_distance = []
         if self.reauthentication_cost is None:
             self.reauthentication_cost = {}
+        if self.dropped_packets is None:
+            self.dropped_packets = {"M1": 0, "M2": 0, "M3_M4": 0, "total": 0}
+        if self.dropped_packets_by_pair is None:
+            self.dropped_packets_by_pair = {}
+        if self.unidentified_dropped_packets is None:
+            self.unidentified_dropped_packets = []
 
     def to_dict(self) -> Dict[str, Any]:
         min_d = self.min_duration if self.min_duration != float("inf") else 0.0
@@ -251,6 +281,9 @@ class D2ZMetrics:
                 "success_vs_distance": list(self.success_vs_distance),
                 "recovery_completion_ratio": round(self.recovery_completion_ratio, 4),
                 "reauthentication_cost": dict(self.reauthentication_cost),
+                "dropped_packets": dict(self.dropped_packets),
+                "dropped_packets_by_pair": dict(self.dropped_packets_by_pair),
+                "unidentified_dropped_packets": self.unidentified_dropped_packets,
             },
             "scalability": {
                 "handover_count": self.handover_count,

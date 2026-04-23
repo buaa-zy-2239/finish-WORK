@@ -1,0 +1,82 @@
+{
+  "task_id": "test_retry_20260422",
+  "name": "测试重试事件记录",
+  "created_at": "2026-04-22T19:30:00",
+  "duration": 65,
+  "uavs": [
+    {
+      "id": 0,
+      "mobility": {
+        "type": "gauss_markov_3d",
+        "seed": 20260422,
+        "alpha": 0.7,
+        "mean_speed_mps": 5,
+        "speed_std_mps": 5,
+        "mean_altitude_m": 80,
+        "altitude_std_m": 20,
+        "area_size_x": 600,
+        "area_size_y": 600,
+        "min_altitude_m": 30,
+        "max_altitude_m": 200,
+        "initial_position": [
+          -98.83,
+          39.82,
+          88.3
+        ],
+        "initial_velocity": [
+          4.3,
+          -1.06,
+          -0.32
+        ],
+        "position_update_interval_s": 0.1
+      },
+      "auth_trigger": {
+        "initial_on_connect": false,
+        "time_offsets_s": [
+          5,
+          20,
+          35,
+          50
+        ],
+        "allow_reauth": true
+      },
+      "link_state": {
+        "comm_range_m": 800,
+        "rssi_loss_model": {
+          "enabled": true,
+          "rssi_good_dbm": -65,
+          "rssi_bad_dbm": -90,
+          "loss_good": 0.5,
+          "loss_bad": 0.8
+        }
+      }
+    }
+  ],
+  "zsps": [
+    {
+      "id": 11,
+      "position": [
+        0,
+        0,
+        100
+      ]
+    }
+  ],
+  "simulation": {
+    "duration": 65
+  },
+  "protocol": "PMAP_ACK",
+  "channel": {
+    "type": "CSMA",
+    "datarate": "100Mbps"
+  },
+  "security_profile": {
+    "adversary": "none",
+    "attack_model": {
+      "downlink_loss_rate": 0.5,
+      "d2z_ack_timeout_s": 1.5,
+      "max_d2z_attempts": 3,
+      "d2z_retry_delay_s": 0.5
+    }
+  }
+}

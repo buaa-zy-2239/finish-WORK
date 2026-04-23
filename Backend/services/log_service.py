@@ -154,6 +154,8 @@ class LogService:
                     "success_vs_distance": [],
                     "recovery_completion_ratio": 0.0,
                     "reauthentication_cost": {},
+                    "dropped_packets": {"M1": 0, "M2": 0, "M3_M4": 0, "total": 0},
+                    "dropped_packets_by_pair": {},
                 },
             }
         return self.analyzer.get_summary()

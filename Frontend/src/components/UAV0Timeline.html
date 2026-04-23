@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UAV0 时序图分析</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .session {
+            margin-bottom: 30px;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .session-header {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #444;
+        }
+        .subsession {
+            margin-left: 20px;
+            margin-top: 15px;
+            border-left: 3px solid #4CAF50;
+            padding-left: 15px;
+        }
+        .subsession-header {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        .event {
+            margin-bottom: 8px;
+            padding: 8px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .event-time {
+            font-weight: bold;
+            color: #333;
+        }
+        .event-type {
+            margin-left: 10px;
+            padding: 2px 6px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .event-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .event-warning {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .event-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .event-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .event-details {
+            margin-top: 5px;
+            font-size: 13px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>UAV0 时序图分析</h1>
+    
+    <div class="session">
+        <div class="session-header">会话 ID: 6c62214a-e78a-4e53-a548-c43bab73b728</div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 0</div>
+            <div class="event">
+                <span class="event-time">5.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_TRIGGER_TIME</div>
+            </div>
+            <div class="event">
+                <span class="event-time">5.5s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">启动重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">5.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 1</div>
+            <div class="event">
+                <span class="event-time">6.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.0s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.008s</span>
+                <span class="event-type event-info">M2 接收</span>
+                <div class="event-details">payload_size: 117</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.008s</span>
+                <span class="event-type event-success">会话建立</span>
+                <div class="event-details">session_key_hash: 70f53d4e62153059362131c5406c2b5977e49b9be395494c23c5a2670473a36d</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.008s</span>
+                <span class="event-type event-success">认证成功</span>
+                <div class="event-details">状态: success</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.008s</span>
+                <span class="event-type event-warning">M3_M4 丢包</span>
+                <div class="event-details">启动重试</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 2</div>
+            <div class="event">
+                <span class="event-time">6.508s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_TIMEOUT</div>
+            </div>
+            <div class="event">
+                <span class="event-time">6.508s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="session">
+        <div class="session-header">会话 ID: 2b05de8d-6337-4bb1-8705-35b67eb60cb3</div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 0</div>
+            <div class="event">
+                <span class="event-time">20.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_TRIGGER_TIME</div>
+            </div>
+            <div class="event">
+                <span class="event-time">20.5s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">启动重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">20.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 1</div>
+            <div class="event">
+                <span class="event-time">21.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">21.0s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">立即重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">21.0s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 2</div>
+            <div class="event">
+                <span class="event-time">21.5s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">21.5s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">立即重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">21.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+            <div class="event">
+                <span class="event-time">22.0s</span>
+                <span class="event-type event-error">重试预算耗尽</span>
+                <div class="event-details">跳过新的 M1 发送</div>
+            </div>
+            <div class="event">
+                <span class="event-time">22.0s</span>
+                <span class="event-type event-error">认证超时</span>
+                <div class="event-details">状态: failed</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="session">
+        <div class="session-header">会话 ID: 9e2cd2f7-77f4-42b1-8ccd-8eec12dee329</div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 0</div>
+            <div class="event">
+                <span class="event-time">35.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_TRIGGER_TIME</div>
+            </div>
+            <div class="event">
+                <span class="event-time">35.5s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">启动重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">35.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 1</div>
+            <div class="event">
+                <span class="event-time">36.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">36.0s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">立即重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">36.0s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 2</div>
+            <div class="event">
+                <span class="event-time">36.5s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">36.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="session">
+        <div class="session-header">会话 ID: f3656d05-1cd4-4bca-942d-bcbbd3ed2a2d</div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 0</div>
+            <div class="event">
+                <span class="event-time">50.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_TRIGGER_TIME</div>
+            </div>
+            <div class="event">
+                <span class="event-time">50.5s</span>
+                <span class="event-type event-warning">M1 丢包</span>
+                <div class="event-details">启动重试</div>
+            </div>
+            <div class="event">
+                <span class="event-time">50.5s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+        
+        <div class="subsession">
+            <div class="subsession-header">子会话 1</div>
+            <div class="event">
+                <span class="event-time">51.0s</span>
+                <span class="event-type event-info">认证启动</span>
+                <div class="event-details">触发类型: D2Z_RETRY_AFTER_M1_DROPPED</div>
+            </div>
+            <div class="event">
+                <span class="event-time">51.0s</span>
+                <span class="event-type event-info">M1 发送</span>
+                <div class="event-details">payload_size: 109</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="session">
+        <div class="session-header">会话状态分析</div>
+        <div class="event">
+            <span class="event-time">总结</span>
+            <div class="event-details">
+                <ul>
+                    <li>总会话数: 4</li>
+                    <li>成功会话: 1 (会话 ID: 6c62214a-e78a-4e53-a548-c43bab73b728)</li>
+                    <li>失败会话: 1 (会话 ID: 2b05de8d-6337-4bb1-8705-35b67eb60cb3)</li>
+                    <li>进行中会话: 2 (会话 ID: 9e2cd2f7-77f4-42b1-8ccd-8eec12dee329, f3656d05-1cd4-4bca-942d-bcbbd3ed2a2d)</li>
+                    <li>丢包情况: 多次 M1 丢包，部分 M3_M4 丢包</li>
+                    <li>重试机制: 正常工作，达到重试预算后会超时</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -58,6 +58,8 @@ class PMAP_UAV(BaseUAV):
         self._d2z_ack_deadline_gen = 0
         self._d2z_attempt_counter = 0
         self._d2z_attempt_session_id = None
+        self._current_session_id = None  # 当前会话ID，用于会话内重试
+        self._current_subsession_id = 0  # 当前子会话ID，用于区分不同的重试会话
 
         self.chaotic = ChaoticMap()
         self.puf = PUFGenerator(uav_id)
@@ -85,6 +87,8 @@ class PMAP_UAV(BaseUAV):
             "protocol": self.protocol_name,
             "analysis_family": self.analysis_family,
             "auth_session_id": getattr(self, "d2z_auth_session_id", None),
+            "current_session_id": self._current_session_id,  # 当前会话ID，用于会话内重试
+            "subsession_id": self._current_subsession_id,  # 当前子会话ID，用于区分不同的重试会话
             "flow": "D2Z",
             "protocol_step": protocol_step,
             "peer_zsp_id": self.zsp_id,
@@ -112,8 +116,11 @@ class PMAP_UAV(BaseUAV):
     def _refresh_attempt_scope(self):
         sid = getattr(self, "d2z_auth_session_id", None)
         if sid != self._d2z_attempt_session_id:
+            # 新的会话，更新会话ID
             self._d2z_attempt_session_id = sid
+            self._current_session_id = sid  # 保存当前会话ID，用于会话内重试
             self._d2z_attempt_counter = 0
+            self._current_subsession_id = 0  # 重置子会话ID
 
     # =========================================================
     # Initialization
@@ -126,7 +133,12 @@ class PMAP_UAV(BaseUAV):
         super().StartApplication()
 
 
-    def _send_M1_after_M2_timeout(self):
+    def _send_M1_retry(self, retry_reason):
+        """统一的M1重试方法
+        
+        Args:
+            retry_reason: 重试原因，用于日志记录
+        """
         self._refresh_attempt_scope()
         max_attempts = self._max_d2z_attempts()
         if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
@@ -135,8 +147,27 @@ class PMAP_UAV(BaseUAV):
                 warning_type="d2z_retry_budget_exhausted",
                 extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
             )
+            # 记录认证失败事件，类型为TIMEOUT
+            self.logger.log_authentication(
+                AuthenticationPhase.TIMEOUT,
+                success=False,
+                peer_id=self.zsp_id,
+                extra=self._d2z_log_extra("D2Z_TIMEOUT"),
+            )
             return
+        # 增加重试次数
         self._d2z_attempt_counter += 1
+        # 增加子会话ID，确保M1丢包后重试创建新的子会话
+        self._current_subsession_id += 1
+        # 记录重试事件
+        self.logger.log_authentication(
+            AuthenticationPhase.INITIATED,
+            peer_id=self.zsp_id,
+            extra={
+                **self._d2z_log_extra("D2Z_RETRY"),
+                "protocol_step": f"D2Z_RETRY_AFTER_{retry_reason.upper()}",
+            },
+        )
 
         self.ni = random.random()
         plaintext = PMAPPlaintext.encode(
@@ -162,14 +193,19 @@ class PMAP_UAV(BaseUAV):
 
         if not self.SendData(packet, "M1"):
             self.logger.log_warning(
-                "M1 dropped, aborting this authentication round",
-                warning_type="uplink_loss_abort",
+                f"M1 dropped, retrying immediately",
+                warning_type="uplink_loss_retry",
                 extra=self._d2z_log_extra("D2Z_M1_DROPPED"),
             )
-            # M1丢包时，不进行重试，等待下一次认证触发（由M2超时或下一轮认证触发）
-            return
+            # M1丢包时，立即重试
+            delay = self.attack_model.get("d2z_retry_delay_s", 0.5)
+            self._safe_schedule(delay, self._send_M1_retry, "m1_dropped")
 
         self.logger.log_message_sent("M1", len(packet), extra=ex)
+
+    def _send_M1_after_M2_timeout(self):
+        """M2超时后的重试方法"""
+        self._send_M1_retry("timeout")
 
 
     # =========================================================
@@ -185,8 +221,16 @@ class PMAP_UAV(BaseUAV):
                 warning_type="d2z_retry_budget_exhausted",
                 extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
             )
+            # 记录认证失败事件，类型为TIMEOUT
+            self.logger.log_authentication(
+                AuthenticationPhase.TIMEOUT,
+                success=False,
+                peer_id=self.zsp_id,
+                extra=self._d2z_log_extra("D2Z_TIMEOUT"),
+            )
             return
-        self._d2z_attempt_counter += 1
+        # 第一次发起认证不增加重试次数，只有重试时才增加
+        # 这里不增加重试次数，因为这是第一次发起认证
 
         self.ni = random.random()
         plaintext = PMAPPlaintext.encode(
@@ -212,12 +256,13 @@ class PMAP_UAV(BaseUAV):
 
         if not self.SendData(packet, "M1"):
             self.logger.log_warning(
-                "M1 dropped, aborting this authentication round",
-                warning_type="uplink_loss_abort",
+                "M1 dropped, initiating retry",
+                warning_type="uplink_loss_retry",
                 extra=self._d2z_log_extra("D2Z_M1_DROPPED"),
             )
-            # M1丢包时，不进行重试，等待下一次认证触发
-            return
+            # M1丢包时，立即重试
+            delay = self.attack_model.get("d2z_retry_delay_s", 0.5)
+            self._safe_schedule(delay, self._send_M1_retry, "m1_dropped")
 
         self.logger.log_message_sent("M1", len(packet), extra=ex)
 
@@ -321,15 +366,30 @@ class PMAP_UAV(BaseUAV):
                     extra=self._d2z_log_extra("D2Z_M2_RECV"),
                 )
 
-                plaintext = self.chaotic.decrypt_by_crp(
-                    payload,
-                    self.crp
-                )
+                try:
+                    plaintext = self.chaotic.decrypt_by_crp(
+                        payload,
+                        self.crp
+                    )
 
-                pid, zsp, ni, ns = PMAPPlaintext.decode(
-                    PMAPPlaintext.M2,
-                    plaintext
-                )
+                    pid, zsp, ni, ns = PMAPPlaintext.decode(
+                        PMAPPlaintext.M2,
+                        plaintext
+                    )
+                except Exception as e:
+                    # 记录认证失败事件，设置错误原因为decrypt_failed
+                    self.logger.log_authentication(
+                        AuthenticationPhase.FAILED,
+                        success=False,
+                        peer_id=self.zsp_id,
+                        extra={**self._d2z_log_extra("D2Z_FAILED"), "error_reason": "decrypt_failed"},
+                    )
+                    self.logger.log_error(
+                        f"D2Z M2 decrypt failed: {e}",
+                        error_type="d2z_m2_decrypt",
+                        extra={**self._d2z_log_extra("D2Z_M2_DECRYPT_FAIL"), "error_reason": "decrypt_failed"},
+                    )
+                    return
                 if ni != self.ni:
 
                     self.logger.log_error(
@@ -552,6 +612,13 @@ class PMAP_UAV(BaseUAV):
                 self._desync_notify_local_pid(_old_pid, self.pid, "d2d_m11_pid")
                 self.crp = self.new_crp
         except Exception as e:
+            # 记录认证失败事件，设置错误原因为decrypt_failed
+            self.logger.log_authentication(
+                AuthenticationPhase.FAILED,
+                success=False,
+                peer_id=self.zsp_id,
+                extra={**self._d2z_log_extra("D2Z_FAILED"), "error_reason": "decrypt_failed"},
+            )
             self.logger.log_message_error(
                 "UNKNOWN",
                 str(e),
@@ -576,7 +643,13 @@ class PMAP_UAV(BaseUAV):
                 extra=self._d2z_log_extra("D2Z_TIMEOUT"),
             )
             return
-        self._d2z_attempt_counter += 1
+        # 记录M3/M4丢包事件（保留在当前子会话）
+        self.logger.log_warning(
+            "M3_M4 dropped, initiating retry",
+            warning_type="uplink_loss_retry",
+            extra=self._d2z_log_extra("D2Z_M3_M4_DROPPED"),
+        )
+        # 调度重试，让_send_M1_retry处理重试次数和子会话ID
         delay = self.attack_model.get("d2z_retry_delay_s", 0.5)
         self._safe_schedule(delay, self._send_M1_after_M2_timeout)
 
@@ -620,7 +693,8 @@ class PMAP_UAV(BaseUAV):
             extra=self._d2z_log_extra("D2Z_ACK_TIMEOUT"),
         )
         self.authenticated = False
-        self.d2z_auth_session_id = str(uuid.uuid4())
+        # 保持当前会话ID不变，用于会话内重试
+        # self.d2z_auth_session_id = str(uuid.uuid4())
         self.logger.log_authentication(
             AuthenticationPhase.INITIATED,
             peer_id=self.zsp_id,
@@ -795,21 +869,8 @@ class PMAP_UAV(BaseUAV):
                 enc3+enc4,
                 mac_input
             )
-            if not self.SendData(packet, "M3_M4"):
-                self.logger.log_warning(
-                    "M3_M4 dropped, aborting this authentication round",
-                    warning_type="uplink_loss_abort",
-                    extra=self._d2z_log_extra("D2Z_M3_M4_DROPPED"),
-                )
-                self._on_d2z_m34_aborted()
-                return
-
-            self.logger.log_message_sent(
-                "M3_M4",
-                len(packet),
-                extra=self._d2z_log_extra("D2Z_M3_M4_SEND"),
-            )
-
+            
+            # 在SendData前更新本地状态（PID/CRP）
             new_pid = hash_256(str(self.id) + str(response))
             session_key = int(hash_256(str(self.ni)), 16) ^ int(hash_256(str(self.ns)), 16)
 
@@ -831,39 +892,38 @@ class PMAP_UAV(BaseUAV):
                 self._d2z_ack_deadline_gen += 1
                 g = self._d2z_ack_deadline_gen
                 self._safe_schedule(t, self._d2z_ack_deadline, g)
+            else:
+                # 非 ACK 模式：直接更新本地状态
+                self.crp = [challenge, response]
+                _old_pid = self.pid
+                self.pid = new_pid
+                self._desync_notify_local_pid(_old_pid, self.pid, "pmap_post_m3m4_local")
+                self.session_key = session_key
+
+                key_hash = hex(self.session_key)[2:]
+                self.logger.log_session_established(
+                    session_key_hash=key_hash,
+                    peer_id=self.zsp_id,
+                    extra=self._d2z_log_extra("D2Z_SESSION_KEY"),
+                )
+                self.logger.log_authentication(
+                    AuthenticationPhase.SUCCESS,
+                    success=True,
+                    peer_id=self.zsp_id,
+                    extra=self._d2z_log_extra("D2Z_SUCCESS"),
+                )
+                self.authenticated = True
+
+            if not self.SendData(packet, "M3_M4"):
+                # 直接调用_on_d2z_m34_aborted，由其处理丢包和重试
+                self._on_d2z_m34_aborted()
                 return
 
-            self.crp = [challenge, response]
-            _old_pid = self.pid
-            self.pid = new_pid
-            self._desync_notify_local_pid(_old_pid, self.pid, "pmap_post_m3m4_local")
-            self.session_key = session_key
-
-            key_hash = hex(self.session_key)[2:]
-            self.logger.log_session_established(
-                session_key_hash=key_hash,
-                peer_id=self.zsp_id,
-                extra=self._d2z_log_extra("D2Z_SESSION_KEY"),
+            self.logger.log_message_sent(
+                "M3_M4",
+                len(packet),
+                extra=self._d2z_log_extra("D2Z_M3_M4_SEND"),
             )
-
-            self.logger.log_authentication(
-                AuthenticationPhase.SUCCESS,
-                success=True,
-                peer_id=self.zsp_id,
-                extra=self._d2z_log_extra("D2Z_SUCCESS"),
-            )
-            self.authenticated = True
-
-            delay = self.attack_model.get("retry_d2z_after_intercept_s")
-            if self.attack_model.get("intercept_m3_m4_delivery") and delay is not None:
-                if self.attack_model.get("desync_attack_first_auth_only", False):
-                    if not getattr(self, "_desync_intercept_retry_scheduled", False):
-                        self._desync_intercept_retry_scheduled = True
-                        self._safe_schedule(
-                            float(delay), self._attack_simulate_d2z_timeout_retry
-                        )
-                else:
-                    self._safe_schedule(float(delay), self._attack_simulate_d2z_timeout_retry)
 
         except Exception as e:
             self.logger.log_authentication(
@@ -884,7 +944,8 @@ class PMAP_UAV(BaseUAV):
         if self.authenticated:
             return
         self.authenticated = False
-        self.d2z_auth_session_id = str(uuid.uuid4())
+        # 保持当前会话ID不变，用于会话内重试
+        # self.d2z_auth_session_id = str(uuid.uuid4())
         self.logger.log_warning(
             "attack: simulated D2Z timeout then retry (UAV PID/CRP already rotated; ZSP DB stale)",
             warning_type="attack_d2z_timeout_retry",

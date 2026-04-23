@@ -538,7 +538,7 @@ class BaseUAV(ns.Application):
             self._last_send_dropped = False
             return True
 
-        self._safe_execute("SendData", logic)
+        return self._safe_execute("SendData", logic)
 
     def GetElevationAngle(self, zsp_node) -> float:
         """Calculate elevation angle from UAV to ZSP (degrees, 0 = horizon, 90 = zenith)."""
