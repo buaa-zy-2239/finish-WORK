@@ -1,2 +1,0 @@
-{"timestamp": 1777209531.2281573, "sim_time": 0.0, "level": "INFO", "event_type": "DATABASE_OPERATION", "entity_type": "ZSP", "entity_id": 1, "details": {"operation": "registered", "uav_pid": "d80ca59d", "uav_id": 0}}
-{"timestamp": 1777209531.9757385, "sim_time": 0.0, "level": "DEBUG", "event_type": "DEBUG", "entity_type": "ZSP", "entity_id": 1, "details": {"message": "ZSP service started"}}
