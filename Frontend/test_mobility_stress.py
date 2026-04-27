@@ -59,20 +59,17 @@ class FrontendMobilityStressTester:
             uav = {
                 "id": i,
                 "mobility": {
-                    "type": "gauss_markov_3d",
-                    "seed": 20260417 + i,
-                    "alpha": params["alpha"],
-                    "mean_speed_mps": params["mean_speed_mps"],
-                    "speed_std_mps": params["speed_std_mps"],
-                    "mean_altitude_m": 80.0,
-                    "altitude_std_m": 20.0,
-                    "area_size_x": 600.0,
-                    "area_size_y": 600.0,
-                    "min_altitude_m": 30.0,
-                    "max_altitude_m": 200.0,
-                    "initial_position": [x, y, 80.0 + (i % 5) * 5],
-                    "initial_velocity": [(0.5 - i % 2) * params["mean_speed_mps"], (0.5 - i % 2) * params["mean_speed_mps"], 0.0],
-                    "position_update_interval_s": 0.1
+                    "type": "ns3::GaussMarkovMobilityModel",
+                    "Bounds": "0, 600, 0, 600, 30, 200",
+                    "TimeStep": "0.1s",
+                    "Alpha": params["alpha"],
+                    "MeanVelocity": f"ns3::UniformRandomVariable[Min={params['mean_speed_mps']}|Max={params['mean_speed_mps']}",
+                    "MeanDirection": "ns3::UniformRandomVariable[Min=0|Max=6.283185307]",
+                    "MeanPitch": "ns3::UniformRandomVariable[Min=0.0|Max=0.0]",
+                    "NormalVelocity": f"ns3::NormalRandomVariable[Mean=0.0|Variance={params['speed_std_mps']**2}|Bound={params['speed_std_mps']*2}",
+                    "NormalDirection": "ns3::NormalRandomVariable[Mean=0.0|Variance=0.2|Bound=0.4]",
+                    "NormalPitch": "ns3::NormalRandomVariable[Mean=0.0|Variance=400.0|Bound=40.0]",
+
                 },
                 "auth_trigger": {
                     "initial_on_connect": False,

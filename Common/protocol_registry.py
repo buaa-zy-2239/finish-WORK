@@ -56,6 +56,14 @@ _PROTOCOLS: Dict[str, ProtocolSpec] = {
         builder_options={},
         analysis_family="D2Z",
     ),
+    "RLBA_3WAY": ProtocolSpec(
+        name="RLBA_3WAY",
+        display_name="RLBA-3WAY",
+        uav_class_path="Entity.UAV.RLBAUAV.RLBAUAV",
+        zsp_class_path="Entity.ZSP.RLBAZSP.RLBAZSP",
+        builder_options={},
+        analysis_family="D2Z",
+    ),
 }
 
 

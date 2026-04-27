@@ -50,14 +50,31 @@ class SimulationBuilderEnhanced:
         self.nodes = None
         self.uavs = []
         self.zsps = []
+        self.users = []
 
-        self.blockchain = Web3BlockchainAdapter()
+        # 初始化区块链（根据配置决定是否开启）
+        self.enable_blockchain = self.config.get("enable_blockchain", False)
+        self.blockchain = None
+        if self.enable_blockchain:
+            try:
+                self.blockchain = Web3BlockchainAdapter()
+                print("[Blockchain] Initialized")
+            except RuntimeError as e:
+                print(f"[Blockchain] Failed to initialize: {e}")
+                self.enable_blockchain = False
+                self.blockchain = None
+        else:
+            print("[Blockchain] Disabled")
+
+        # 初始化用户数量
+        self.user_count = self.config.get("user_count", 0)
 
         self.stats = {
             "start_time": None,
             "end_time": None,
             "total_uavs": 0,
             "total_zsps": 0,
+            "total_users": 0,
             "total_messages": 0,
             "successful_authentications": 0,
             "failed_authentications": 0,
@@ -95,6 +112,7 @@ class SimulationBuilderEnhanced:
             self._setup_network()
             self._setup_zsp()
             self._setup_uav()
+            self._setup_user()
             self._pre_reg()
 
             duration = self.config.get("simulation", {}).get("duration", 30)
@@ -107,6 +125,7 @@ class SimulationBuilderEnhanced:
             self.stats["end_time"] = datetime.now().isoformat()
             self.stats["total_uavs"] = len(self.uavs)
             self.stats["total_zsps"] = len(self.zsps)
+            self.stats["total_users"] = len(self.users)
 
             print("[BUILDER] Simulation completed successfully")
 
@@ -139,10 +158,16 @@ class SimulationBuilderEnhanced:
             max_id = max(max_id, u.get("id", 0))
         for z in self.config.get("zsps", []):
             max_id = max(max_id, z.get("id", 0))
-        total = max_id + 1
+        
+        # 为用户分配节点ID，从max_id+1开始
+        if self.user_count > 0:
+            total = max_id + 1 + self.user_count
+        else:
+            total = max_id + 1
+            
         self.nodes = ns.NodeContainer()
         self.nodes.Create(total)
-        print(f"[BUILDER] Created {total} nodes")
+        print(f"[BUILDER] Created {total} nodes (UAVs: {len(self.config.get('uavs', []))}, ZSPs: {len(self.config.get('zsps', []))}, Users: {self.user_count})")
 
     def _setup_network(self):
         stack = ns.InternetStackHelper()
@@ -169,7 +194,7 @@ class SimulationBuilderEnhanced:
                 node,
                 zid,
                 blockchain=self.blockchain,
-                enable_blockchain=True,
+                enable_blockchain=self.enable_blockchain,
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
                 compute_profile=zsp_conf.get("compute_profile"),
@@ -205,12 +230,72 @@ class SimulationBuilderEnhanced:
             uav.SetStartTime(ns.Seconds(0))
             print(f"[BUILDER] UAV-{uid} created ({self.protocol})")
 
+    def _setup_user(self):
+        if self.user_count > 0 and self.protocol == 'RLBA_3WAY':
+            # 限制用户数量，避免内存使用过度
+            max_users = 5
+            if self.user_count > max_users:
+                print(f"[BUILDER] User count {self.user_count} exceeds maximum {max_users}, setting to {max_users}")
+                self.user_count = max_users
+            
+            # 为三方认证协议创建用户
+            try:
+                from Entity.User.RLBAUser import RLBAUser
+                
+                # 计算用户节点ID的起始值
+                max_id = 0
+                for u in self.config.get("uavs", []):
+                    max_id = max(max_id, u.get("id", 0))
+                for z in self.config.get("zsps", []):
+                    max_id = max(max_id, z.get("id", 0))
+                user_node_start_id = max_id + 1
+                
+                for i in range(self.user_count):
+                    user_id = f"user_{i}"
+                    gss_id = self.zsps[0].id if self.zsps else ""
+                    # 生成用户密钥
+                    import hashlib
+                    secret = hashlib.sha256(f"RLBA_SECRET:{user_id}".encode()).hexdigest()
+                    
+                    # 分配节点给用户
+                    user_node_id = user_node_start_id + i
+                    node = self.nodes.Get(user_node_id)
+                    
+                    # 创建用户实例
+                    user = RLBAUser(node, user_id, gss_id, secret)
+                    self.users.append(user)
+                    
+                    # 为用户设置位置（固定位置）
+                    position = [100 + i * 50, 100, 1.0]  # 地面用户，高度1米
+                    MobilityFactory.install_constant(node, position)
+                    
+                    # 安装用户应用
+                    node.AddApplication(user)
+                    user.SetStartTime(ns.Seconds(0))
+                    
+                    # 模拟连接到ZSP
+                    user.on_connected_to_zsp(1)  # 假设连接到ZSP 1
+                    
+                    print(f"[BUILDER] User-{i} created with node ID {user_node_id} ({self.protocol})")
+            except Exception as e:
+                print(f"[BUILDER] Error creating users: {e}")
+                import traceback
+                traceback.print_exc()
+
     def _pre_reg(self):
         for uav in self.uavs:
             reg = uav.get_registration_record()
             for zsp in self.zsps:
                 zsp.RegisterUAV(reg["pid"], copy.deepcopy(reg))
         print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs ({self.protocol})")
+        
+        # 部署智能合约（如果启用了区块链）
+        if self.enable_blockchain and self.blockchain:
+            if hasattr(self.blockchain, 'deploy_contract'):
+                self.blockchain.deploy_contract()
+                print("[Blockchain] Contract deployed and ready")
+            else:
+                print("[Blockchain] deploy_contract method not available")
 
 
 if __name__ == "__main__":

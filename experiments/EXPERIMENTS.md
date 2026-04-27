@@ -546,7 +546,7 @@ python3 experiments/run_top_tier_desync_experiment.py
 | **机动模型** | 一律 **`gauss_markov_3d`**；应力由 `--gm3d-stress` 分档（见 `swarm_unified_scenario_experiment.py` 中 `GM3D_STRESS_PRESETS`：名义约 **5±5 m/s**，aggressive 约 **12±7 m/s**）。 | 默认 **`task_random`**（航点 + 随机化，`max_speed_task_random_mps=22`），**与 GM3D 速度分布不同**。 |
 | **设计意图** | 因子实验：规模×密度、纯机动应力、纯信道应力、组合应力；**控制叙事变量**。 | 安全叙事：**高动态任务驱动**下边界攻击 + 多轮恢复；与 S01 主表 **并列呈现**，勿混为同一「速度条件」下的 A/B。 |
 | **信道** | S01 无 RSSI/burst；S03/S04 打开。 | `twc2025_elevation_aware`，与 S01 同 profile。 |
-| **种子** | `run_s01`–`s03` 默认 **12** 个种子；`run_s04` 已与 S01 **对齐为 12**（均可被 `SEEDS` 覆盖）。 | 顶会/微观流水线默认 **3** 个种子；需要与 S01 同分布时可显式传 `--seeds`。 |
+| **种子** | `run_s01` 默认 **12** 个种子（s20260417-s20260428）；`run_s02` 默认 **8** 个种子（s20260417-s20260424）；`run_s03` 默认 **8** 个种子（s20260417-s20260424）；`run_s04` 默认 **12** 个种子（s20260417-s20260428）（均可被 `SEEDS` 覆盖）。 | 顶会/微观流水线默认 **3** 个种子；需要与 S01 同分布时可显式传 `--seeds`。 |
 | **论文写法建议** | 正文「可扩展性 / 应力」小节引用 S01–S04。 | 「威胁与恢复」小节引用去同步；**一句脚注**说明机动模型与主统计实验不同、为何仍有效（攻击窗口在协议边界，与绝对速度标量弱相关或强调 task_random 更激进）。 |
 | **可选对齐实验**（附录） | 若审稿人要求「同 GM3D nominal 下去同步」：可用 `swarm_unified_scenario_experiment.py` 自行组合 `--motion-modes gauss_markov_3d --gm3d-stress nominal --desync-boundary-recovery ...`（与当前预设 `task_random` 结果不可直接数值对比）。 |
 
@@ -559,17 +559,17 @@ python3 experiments/run_top_tier_desync_experiment.py
 
 ### 5.2 因子设计（与 Scalability 维度对齐）
 
-| 编号 | 研究问题 | 操纵因子 | 固定 / 对照 |
-|------|----------|----------|-------------|
-| **S01** 主可扩展性 | N、ρ、协议下成功率与延迟 | N∈{10,30,50}，ρ∈{1,10,50}，PMAP / PMAP_ACK | `twc2025_elevation_aware`，GM3D `nominal`，无 RSSI/burst |
-| **S02** 机动应力 | 高动态是否加剧超时 / 失败 | `--gm3d-stress` conservative / nominal / aggressive | 信道同 S01，ρ 取 low |
-| **S03** 信道应力 | 边缘链路 + 突发差信道 | `--rssi-loss-enabled` + `--burst-loss-enabled` | GM3D `nominal`，ρ=low |
-| **S04** 组合应力 | 机动 + 信道同时恶化 | aggressive + RSSI + burst | 子集 N∈{10,30}，ρ=low |
+| 编号 | 研究问题 | 操纵因子 | 固定 / 对照 | 实际执行范围 |
+|------|----------|----------|-------------|-------------|
+| **S01** 主可扩展性 | N、ρ、协议下成功率与延迟 | N∈{10,30,50}，ρ∈{1,10,50}，PMAP / PMAP_ACK | `twc2025_elevation_aware`，GM3D `nominal`，无 RSSI/burst | 规模：10, 30, 50；密度：1, 10, 50；协议：PMAP, PMAP_ACK；种子：12个 |
+| **S02** 机动应力 | 高动态是否加剧超时 / 失败 | `--gm3d-stress` conservative / nominal / aggressive | 信道同 S01，ρ=low | 规模：10, 30；密度：1；协议：PMAP, PMAP_ACK；应力：conservative, nominal, aggressive；种子：8个 |
+| **S03** 信道应力 | 边缘链路 + 突发差信道 | `--rssi-loss-enabled` + `--burst-loss-enabled` | GM3D `nominal`，ρ=low | 规模：10, 30, 50；密度：1；协议：PMAP, PMAP_ACK；信道：RSSI+burst；种子：8个 |
+| **S04** 组合应力 | 机动 + 信道同时恶化 | aggressive + RSSI + burst | 子集 N∈{10,30}，ρ=low | 规模：10, 30；密度：1；协议：PMAP, PMAP_ACK；条件：aggressive+RSSI+burst；种子：12个 |
 
 ### 5.3 统计口径
 
 - **单元**：一次 `(motion, N, ρ, protocol, gm3d_stress, channel_flags)` 的 NS3 运行。  
-- **重复**：不同 `--seeds`（默认脚本约 **12** 个种子，可用 `SEEDS` 扩展）。  
+- **重复**：不同 `--seeds`（S01/S04 默认 **12** 个种子，S02/S03 默认 **8** 个种子，可用 `SEEDS` 扩展）。  
 - **图表**：对 `success_rate_percent`（及可选 `avg_duration`）跨种子算 **t 分布 95% CI**（`aggregate_and_plot.py`）；单种子时误差棒为 0。
 
 ### 5.4 与实现对齐
@@ -580,17 +580,37 @@ python3 experiments/run_top_tier_desync_experiment.py
 
 ### 5.5 脚本一览与聚合
 
-| 脚本 | 内容 |
-|------|------|
-| `reproducible/run_s01_main_scalability.sh` | S01：N×ρ×协议×多种子 |
-| `reproducible/run_s02_mobility_stress.sh` | S02：三档 GM3D 应力 |
-| `reproducible/run_s03_channel_stress.sh` | S03：RSSI + burst |
-| `reproducible/run_s04_combined_stress.sh` | S04：组合应力（子集） |
+| 脚本 | 内容 | 实际输出目录结构 |
+|------|------|------------------|
+| `reproducible/run_s01_main_scalability.sh` | S01：N×ρ×协议×多种子 | `gauss_markov_3d_n<size>_d<density>_<protocol>_s<seed>` |
+| `reproducible/run_s02_mobility_stress.sh` | S02：三档 GM3D 应力 | `gauss_markov_3d_n<size>_d<density>_<protocol>_s<seed>_gm<stress>` |
+| `reproducible/run_s03_channel_stress.sh` | S03：RSSI + burst | `gauss_markov_3d_n<size>_d<density>_<protocol>_s<seed>_chRB` |
+| `reproducible/run_s04_combined_stress.sh` | S04：组合应力（子集） | `gauss_markov_3d_n<size>_d<density>_<protocol>_s<seed>_gmaggressive_chRB` |
 
 ```bash
+# S01 聚合
 python3 experiments/reproducible/aggregate_and_plot.py \
   --results-root experiments/results_repro_s01 \
   --charts-dir experiments/results_repro_s01/charts
+
+# S02 聚合
+python3 experiments/reproducible/aggregate_and_plot.py \
+  --results-root experiments/results_repro_s02 \
+  --charts-dir experiments/results_repro_s02/charts \
+  --filter-density 1
+
+# S03 聚合
+python3 experiments/reproducible/aggregate_and_plot.py \
+  --results-root experiments/results_repro_s03 \
+  --charts-dir experiments/results_repro_s03/charts \
+  --filter-density 1
+
+# S04 聚合
+python3 experiments/reproducible/aggregate_and_plot.py \
+  --results-root experiments/results_repro_s04 \
+  --charts-dir experiments/results_repro_s04/charts \
+  --filter-density 1 \
+  --filter-gm aggressive
 ```
 
 ### 5.6 依赖

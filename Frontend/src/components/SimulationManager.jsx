@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './SimulationManager.css';
+import ProtocolConfig from './ProtocolConfig';
 
 const API_BASE = 'http://localhost:8001/api/v1';
 
@@ -9,7 +10,10 @@ const PROTOCOL_OPTIONS = [
   { value: 'PMAP_ACK', label: 'PMAP_ACK（会话冗余：收 ZSP 的 D2Z_ACK 后才换 PID）' },
   { value: 'STATIC_BASELINE', label: 'STATIC_BASELINE（静态/预共享身份基线协议）' },
   { value: 'RLBA_UAV', label: 'RLBA_UAV（三方 AKA 的平台映射版对照协议）' },
+  { value: 'RLBA_3WAY', label: 'RLBA_3WAY（完整三方 AKA 协议）' },
 ];
+
+const USER_COUNT_OPTIONS = [1, 5, 10, 20];
 
 const BASELINE_SCENARIO_IDS = new Set([
   'baseline_d2z',
@@ -31,69 +35,7 @@ const GM3D_STRESS_OPTIONS = [
   { value: 'aggressive', label: '激进 (12±7 m/s)' }
 ];
 
-const createSwarmBurstScenario = (size, mode = 'network') => {
-  const cols = 10;
-  const spacingX = 22;
-  const spacingY = 28;
-  const triggerAt = 6;
-  const uavs = Array.from({ length: size }, (_, idx) => {
-    const row = Math.floor(idx / cols);
-    const col = idx % cols;
-    const x = -120 + col * spacingX;
-    const y = -40 + row * spacingY;
-    return {
-      id: idx,
-      mobility: {
-        type: 'waypoint',
-        waypoints: [
-          [0, [x, y, 55]],
-          [8, [x + 35, y, 55]],
-          [18, [x + 80, y + 5, 55]],
-        ],
-      },
-      auth_trigger: {
-        initial_on_connect: false,
-        time_offsets_s: [triggerAt],
-        allow_reauth: false,
-      },
-      link_state: {
-        comm_range_m: 320,
-      },
-    };
-  });
 
-  return {
-    id: mode === 'compute' ? 'swarm_burst_compute' : 'swarm_burst_network',
-    label: mode === 'compute' ? '阶段1.5：蜂群认证（计算敏感性）' : '阶段1.5：蜂群认证（网络拥塞）',
-    description:
-      mode === 'compute'
-        ? '与网络拥塞场景保持相同蜂群拓扑，但在 ZSP 侧注入统一响应延迟，以模拟更重型协议计算代价。'
-        : '多架 UAV 在任务启动窗口集中触发 D2Z 认证，用于观察 10/30/50/100 架规模下的并发接入压力与日志表现。',
-    duration: 28,
-    uavs,
-    zsps: [
-      {
-        id: size + 1,
-        position: [0, 0, 100],
-        ...(mode === 'compute' ? { compute_profile: { response_delay_s: 0.12 } } : {}),
-      },
-    ],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    supportsSwarmSize: true,
-    stageTag: '阶段1动态场景',
-    scenarioNotes:
-      mode === 'compute'
-        ? ['任务启动并发触发', 'ZSP 统一响应延迟模拟重型协议', '用于主实验B子实验B：计算敏感性']
-        : ['任务启动并发触发', '规模档位：10 / 30 / 50 / 100 UAV', '用于主实验B子实验A：网络拥塞'],
-    triggerSummary: '任务启动时窗触发认证',
-    scenarioProfile: {
-      experiment_track: 'main_exp_b',
-      sub_experiment: mode === 'compute' ? 'protocol_compute_sensitivity' : 'network_congestion',
-      swarm_sizes: SWARM_SIZE_OPTIONS,
-    },
-  };
-};
 
 const createMobilityStressScenario = (size, density, stressLevel) => {
   // GM3D stress parameters - 参考 experiments 中的实现
@@ -360,310 +302,6 @@ Math.seedrandom = function(seed) {
 
 const SCENARIOS = [
   {
-    id: 'baseline_d2z',
-    label: '基线 D2Z',
-    description: '双 UAV、双 ZSP，航点移动，标准 PMAP 入网认证',
-    duration: 30,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 50]], [10, [200, 0, 50]]] } },
-      { id: 1, mobility: { type: 'waypoint', waypoints: [[0, [100, 0, 50]], [10, [300, 0, 50]]] } },
-    ],
-    zsps: [
-      { id: 2, position: [0, 0, 100] },
-      { id: 3, position: [500, 0, 100] },
-    ],
-    security_profile: { adversary: 'none' },
-  },
-  {
-    id: 'single_uav_dense_zsp',
-    label: '单 UAV 多 ZSP 覆盖',
-    description: '一架无人机与两个地面站，便于观察切换与重复认证日志',
-    duration: 45,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 40]], [20, [400, 0, 40]]] } },
-    ],
-    zsps: [
-      { id: 1, position: [0, 0, 100] },
-      { id: 2, position: [200, 0, 100] },
-    ],
-    security_profile: { adversary: 'none' },
-  },
-  {
-    id: 'stress_short_time',
-    label: '短时压力',
-    description: '较短仿真时长，用于快速回归协议与日志管道',
-    duration: 15,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 50]], [5, [150, 0, 50]]] } },
-      { id: 1, mobility: { type: 'waypoint', waypoints: [[0, [80, 0, 50]], [5, [220, 0, 50]]] } },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: { adversary: 'none' },
-  },
-  {
-    id: 'desync_m3m4_intercept',
-    label: '去同步：ZSP 丢弃上行 M3/M4',
-    description:
-      'desync_template=uplink_rotation_drop：每架机仅第一次上行 M3/M4 在 ZSP 被丢弃，之后与正常信道一致，便于观察重试与恢复。PMAP_ACK 下未收 ACK 前不换 PID',
-    duration: 35,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 50]], [30, [120, 0, 50]]] } },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: {
-      adversary: 'channel_drop',
-      attack_model: {
-        desync_template: 'uplink_rotation_drop',
-        retry_d2z_after_intercept_s: 4,
-      },
-    },
-  },
-  {
-    id: 'pmap_ack_baseline',
-    label: 'PMAP_ACK 基线（无攻击）',
-    description: '单 UAV 单塔，验证 D2Z_ACK 后双方再提交 PID/CRP 的正常路径',
-    duration: 25,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 50]], [18, [100, 0, 50]]] } },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-  },
-  {
-    id: 'pmap_ack_attack_drop_ack',
-    label: 'PMAP_ACK：去同步（抑制 D2Z_ACK）',
-    description:
-      'desync_template=downlink_d2z_ack_drop：每架机仅第一次轮换在 ZSP 侧抑制 D2Z_ACK；再次 M3/M4 后正常下发 ACK 并更新库，展示超时重试后的恢复',
-    duration: 30,
-    uavs: [
-      { id: 0, mobility: { type: 'waypoint', waypoints: [[0, [0, 0, 50]], [25, [90, 0, 50]]] } },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: {
-      adversary: 'channel_drop',
-      attack_model: {
-        desync_template: 'downlink_d2z_ack_drop',
-        d2z_ack_timeout_s: 3,
-      },
-    },
-    defaultProtocol: 'PMAP_ACK',
-  },
-  {
-    id: 'dynamic_edge_recovery_natural',
-    label: '阶段1.5：主实验A（自然边缘恢复）',
-    description:
-      '单 UAV 沿固定巡检轨迹飞行，以距离 + RSSI 联合判据进入 edge 区域后触发认证，不注入恶意 ACK 抑制，用于观察 mobility-induced 恢复需求。',
-    duration: 40,
-    uavs: [
-      {
-        id: 0,
-        mobility: {
-          type: 'patrol',
-          route: [
-            [30, 0, 55],
-            [180, 0, 55],
-            [255, 0, 55],
-            [120, 0, 55],
-          ],
-          dwell_s: 1.5,
-          speed_mps: 14,
-        },
-        auth_trigger: {
-          initial_on_connect: false,
-          edge_rssi_threshold: -74,
-          cooldown_s: 4,
-          allow_reauth: false,
-        },
-        link_state: {
-          comm_range_m: 300,
-          edge_rssi_threshold: -74,
-        },
-      },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '阶段1动态场景',
-    scenarioNotes: [
-      '单条巡检轨迹：30m -> 255m -> 120m',
-      '联合判据：distance + RSSI + edge zone',
-      '口径：mobility-induced desynchronization',
-    ],
-    triggerSummary: '边缘 RSSI 触发认证',
-    scenarioProfile: {
-      experiment_track: 'main_exp_a',
-      desync_mode: 'mobility_induced',
-      path_template: 'single_patrol_corridor',
-      altitude_m: 55,
-      speed_mps: 14,
-      edge_rule: 'distance + RSSI + edge_zone',
-    },
-  },
-  {
-    id: 'dynamic_edge_recovery_attack',
-    label: '阶段1.5：主实验A（攻击诱发恢复）',
-    description:
-      '与主实验A自然场景保持同一巡检轨迹和边缘判据，但额外在首次轮换后抑制 D2Z_ACK，用于区分 adversarial desynchronization 与 mobility-induced 场景。',
-    duration: 40,
-    uavs: [
-      {
-        id: 0,
-        mobility: {
-          type: 'patrol',
-          route: [
-            [30, 0, 55],
-            [180, 0, 55],
-            [255, 0, 55],
-            [120, 0, 55],
-          ],
-          dwell_s: 1.5,
-          speed_mps: 14,
-        },
-        auth_trigger: {
-          initial_on_connect: false,
-          edge_rssi_threshold: -74,
-          cooldown_s: 4,
-          allow_reauth: false,
-        },
-        link_state: {
-          comm_range_m: 300,
-          edge_rssi_threshold: -74,
-        },
-      },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: {
-      adversary: 'channel_drop',
-      attack_model: {
-        desync_template: 'downlink_d2z_ack_drop',
-        d2z_ack_timeout_s: 3,
-      },
-    },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '阶段1动态场景',
-    scenarioNotes: [
-      '与自然场景共享轨迹与 edge 判据',
-      '首次 ACK 抑制后恢复',
-      '口径：adversarial desynchronization',
-    ],
-    triggerSummary: '边缘 RSSI 触发认证 + 首次 ACK 抑制',
-    scenarioProfile: {
-      experiment_track: 'main_exp_a',
-      desync_mode: 'adversarial',
-      path_template: 'single_patrol_corridor',
-      altitude_m: 55,
-      speed_mps: 14,
-      edge_rule: 'distance + RSSI + edge_zone',
-    },
-  },
-  {
-    id: 'handover_window_reauth',
-    label: '阶段1：切换窗口认证',
-    description:
-      '单 UAV 在两个 ZSP 覆盖区之间穿行，发生切换时在切换窗口触发认证，用于观察 handover 驱动的 D2Z 日志。',
-    duration: 42,
-    uavs: [
-      {
-        id: 0,
-        mobility: {
-          type: 'transit',
-          start: [0, 0, 55],
-          end: [420, 0, 55],
-          speed_mps: 12,
-        },
-        auth_trigger: {
-          initial_on_connect: true,
-          on_handover: true,
-          handover_delay_s: 0.4,
-          allow_reauth: false,
-        },
-        link_state: {
-          comm_range_m: 300,
-        },
-      },
-    ],
-    zsps: [
-      { id: 2, position: [0, 0, 100] },
-      { id: 3, position: [300, 0, 100] },
-    ],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '阶段1动态场景',
-    scenarioNotes: ['切换窗口触发认证', '双 ZSP 覆盖切换', '适合验证位置驱动 handover 触发'],
-    triggerSummary: '连接建立 + 切换窗口触发认证',
-  },
-  {
-    id: 'formation_takeoff_swarm',
-    label: '阶段1：编队起飞群飞',
-    description:
-      '多 UAV 按编队偏移跟随统一锚点航迹，模拟编队起飞/群飞，并在任务启动窗口集中触发认证。',
-    duration: 30,
-    uavs: Array.from({ length: 10 }, (_, idx) => ({
-      id: idx,
-      mobility: {
-        type: 'formation',
-        anchor_waypoints: [
-          [0, [0, 0, 60]],
-          [8, [70, 0, 60]],
-          [18, [170, 40, 60]],
-        ],
-        offset: [(idx % 5) * 18, Math.floor(idx / 5) * 20, 0],
-      },
-      auth_trigger: {
-        initial_on_connect: false,
-        time_offsets_s: [5],
-        allow_reauth: false,
-      },
-      link_state: {
-        comm_range_m: 330,
-      },
-    })),
-    zsps: [{ id: 20, position: [0, 0, 100] }],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '阶段1动态场景',
-    scenarioNotes: ['formation 运动模式', '群飞并发触发', '用于验证任务驱动调度器'],
-    triggerSummary: '任务启动时窗触发认证',
-  },
-  {
-    id: 'high_speed_burst_loss',
-    label: '阶段1：高速转场失联恢复',
-    description:
-      '单 UAV 高速转场，通过预设 loss window 模拟突发失联窗口，用于观察位置相关链路波动下的认证恢复。',
-    duration: 26,
-    uavs: [
-      {
-        id: 0,
-        mobility: {
-          type: 'transit',
-          start: [0, 0, 65],
-          end: [520, 0, 65],
-          speed_mps: 28,
-        },
-        auth_trigger: {
-          initial_on_connect: false,
-          time_offsets_s: [4, 10],
-          allow_reauth: false,
-        },
-        link_state: {
-          comm_range_m: 320,
-          loss_windows: [
-            { start_s: 4.5, end_s: 6.5, reason: 'high_speed_gap' },
-          ],
-        },
-      },
-    ],
-    zsps: [{ id: 2, position: [0, 0, 100] }],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '阶段1动态场景',
-    scenarioNotes: ['transit 运动模式', '预设失联窗口', '补充实验 C 的前置入口'],
-    triggerSummary: '时间触发认证 + 位置关联失联窗口',
-  },
-  createSwarmBurstScenario(10, 'network'),
-  createSwarmBurstScenario(10, 'compute'),
-  {
     id: 'mobility_stress_test',
     label: '机动应力测试',
     description: '测试不同机动性档位下的认证协议性能，支持调整网络规模、密度和GM3D应力档位',
@@ -749,6 +387,59 @@ const SCENARIOS = [
       gm3d_stress_levels: GM3D_STRESS_OPTIONS.map(opt => opt.value)
     }
   },
+  {
+    id: 'cross_region_flight',
+    label: '跨区域飞行',
+    description: '测试无人机从一个区域飞行到另一个区域，在不同ZSP之间切换认证的性能',
+    duration: 40,
+    uavs: [
+      {
+        id: 0,
+        mobility: {
+          type: 'transit',
+          start: [-500, 0, 100],
+          end: [500, 0, 100],
+          speed_mps: 25.0
+        },
+        auth_trigger: {
+          initial_on_connect: true,
+          allow_reauth: true,
+          on_handover: true,
+          handover_delay_s: 0.5
+        },
+        link_state: {
+          comm_range_m: 300,
+          zsp_handover: {
+            enabled: true,
+            rssi_threshold_dbm: -85,
+            hysteresis_db: 5,
+            min_dwell_time_s: 2.0,
+            handover_delay_s: 0.5,
+            reauth_after_handover: true
+          }
+        }
+      }
+    ],
+    zsps: [
+      { id: 1, position: [-250, 0, 100] },
+      { id: 2, position: [250, 0, 100] }
+    ],
+    security_profile: { adversary: 'none' },
+    defaultProtocol: 'PMAP_ACK',
+    stageTag: '跨区域实验',
+    scenarioNotes: [
+      'Transit移动模型',
+      '从左区域飞行到右区域',
+      '两个ZSP部署',
+      '支持ZSP切换认证',
+      '用于测试跨区域认证性能'
+    ],
+    triggerSummary: '连接触发认证 + 切换触发认证',
+    scenarioProfile: {
+      experiment_track: 'real_world_scenarios',
+      sub_experiment: 'cross_region_flight'
+    }
+  },
 ];
 
 export const SimulationManager = () => {
@@ -759,21 +450,19 @@ export const SimulationManager = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [copiedTaskId, setCopiedTaskId] = useState(null);
   const copyFeedbackTimerRef = useRef(null);
-  const [scenarioId, setScenarioId] = useState(SCENARIOS[0].id);
+  const [scenarioId, setScenarioId] = useState('mobility_stress_test');
   const [protocol, setProtocol] = useState(PROTOCOL_OPTIONS[0].value);
   const [swarmSize, setSwarmSize] = useState(SWARM_SIZE_OPTIONS[0]);
   const [density, setDensity] = useState(DENSITY_OPTIONS[0].value);
   const [gm3dStress, setGm3dStress] = useState(GM3D_STRESS_OPTIONS[1].value);
+  const [userCount, setUserCount] = useState(USER_COUNT_OPTIONS[0]);
+  const [enableBlockchain, setEnableBlockchain] = useState(false);
 
   const baseScenario = SCENARIOS.find((s) => s.id === scenarioId) || SCENARIOS[0];
   const activeScenario =
-    baseScenario.id === 'swarm_burst_network'
-      ? createSwarmBurstScenario(swarmSize, 'network')
-      : baseScenario.id === 'swarm_burst_compute'
-        ? createSwarmBurstScenario(swarmSize, 'compute')
-        : baseScenario.id === 'mobility_stress_test'
-          ? createMobilityStressScenario(swarmSize, density, gm3dStress)
-          : baseScenario;
+    baseScenario.id === 'mobility_stress_test'
+      ? createMobilityStressScenario(swarmSize, density, gm3dStress)
+      : baseScenario;
   const effectiveProtocol = protocol;
   const isBaselineScenario = BASELINE_SCENARIO_IDS.has(activeScenario.id);
 
@@ -797,16 +486,18 @@ export const SimulationManager = () => {
 
     try {
       const response = await axios.post(`${API_BASE}/simulation/create`, {
-        name: taskName || `仿真任务_${new Date().getTime()}`,
-        duration,
-        uavs: activeScenario.uavs,
-        zsps: activeScenario.zsps,
-        protocol: effectiveProtocol,
-        channel: { type: 'CSMA', datarate: '100Mbps' },
-        scenario: activeScenario.id,
-        scenario_profile: activeScenario.scenarioProfile || null,
-        security_profile: activeScenario.security_profile || {},
-      });
+                name: taskName || `仿真任务_${new Date().getTime()}`,
+                duration,
+                uavs: activeScenario.uavs,
+                zsps: activeScenario.zsps,
+                protocol: effectiveProtocol,
+                channel: { type: 'CSMA', datarate: '100Mbps' },
+                scenario: activeScenario.id,
+                scenario_profile: activeScenario.scenarioProfile || null,
+                security_profile: activeScenario.security_profile || {},
+                user_count: effectiveProtocol === 'RLBA_3WAY' ? userCount : 0,
+                enable_blockchain: effectiveProtocol === 'RLBA_UAV' || effectiveProtocol === 'RLBA_3WAY' ? true : enableBlockchain,
+            });
 
       if (response.data.success) {
         alert(`✓ 仿真任务创建成功！\n任务ID: ${response.data.task_id}`);
@@ -972,6 +663,36 @@ export const SimulationManager = () => {
             ) : (
               <small>提交任务时将使用：{effectiveProtocol}</small>
             )}
+          </div>
+
+          <div className="form-group">
+            <label>开启区块链：</label>
+            <select
+              value={effectiveProtocol === "RLBA_UAV" || effectiveProtocol === "RLBA_3WAY" ? "true" : (enableBlockchain ? "true" : "false")}
+              onChange={(e) => {
+                if (effectiveProtocol !== "RLBA_UAV" && effectiveProtocol !== "RLBA_3WAY") {
+                  setEnableBlockchain(e.target.value === "true");
+                }
+              }}
+              disabled={effectiveProtocol === "RLBA_UAV" || effectiveProtocol === "RLBA_3WAY"}
+            >
+              <option value="true">True</option>
+              <option value="false">False</option>
+            </select>
+            {effectiveProtocol === "RLBA_UAV" || effectiveProtocol === "RLBA_3WAY" ? (
+              <small>RLBA协议固定开启区块链</small>
+            ) : (
+              <small>其他协议可选择是否开启区块链</small>
+            )}
+          </div>
+
+          <div className="protocol-config-section">
+            <ProtocolConfig 
+              protocol={effectiveProtocol} 
+              userCount={userCount} 
+              setUserCount={setUserCount} 
+              USER_COUNT_OPTIONS={USER_COUNT_OPTIONS} 
+            />
           </div>
 
           <div className="form-group">

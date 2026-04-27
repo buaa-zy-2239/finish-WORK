@@ -934,6 +934,14 @@ class PMAP_UAV(BaseUAV):
             )
             self.logger.log_error(str(e), error_type="M4_processing")
 
+    def on_connected_to_zsp(self):
+        """连接到ZSP时的回调方法，实现PMAP协议的连接即开始认证机制"""
+        def logic():
+            if self.auth_trigger_config.get("initial_on_connect", True):
+                self._trigger_d2z_auth("D2Z_INITIATED")
+
+        self._safe_execute("on_connected", logic)
+
     def _attack_simulate_d2z_timeout_retry(self):
         """Simulate max-auth-time expiry: UAV retries D2Z while ZSP never applied M3/M4."""
         if self.d2z_ack_mode:

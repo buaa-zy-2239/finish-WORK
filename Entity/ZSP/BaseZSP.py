@@ -143,7 +143,7 @@ class BaseZSP(ns.Application):
 
             self._install_recv_callback()
 
-            if self.enable_blockchain:
+            if self.enable_blockchain and self.blockchain:
                 self._schedule_blockchain_poll()
 
         self._safe_execute("StartApplication", logic)
@@ -311,8 +311,11 @@ class BaseZSP(ns.Application):
 
             if pid not in self.uav_db:
                 self.uav_db[pid] = reg_info
-                if not self.blockchain.is_valid_uav(pid):
-                    self.blockchain.register_uav(pid)
+                # 只有当enable_blockchain为True且blockchain不为None时，才使用区块链
+                if self.enable_blockchain and self.blockchain:
+                    if hasattr(self.blockchain, 'is_valid_uav') and hasattr(self.blockchain, 'register_uav'):
+                        if not self.blockchain.is_valid_uav(pid):
+                            self.blockchain.register_uav(pid)
             self.logger.log_uav_db_operation(
                     DatabaseOperation.REGISTERED,
                     uav_pid=pid,

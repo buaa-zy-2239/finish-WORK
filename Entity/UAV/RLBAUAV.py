@@ -1,5 +1,5 @@
 import hashlib
-import random
+import os
 import struct
 import uuid
 
@@ -22,6 +22,15 @@ def _hash_bytes(*parts) -> bytes:
 
 def _hash_hex(*parts) -> str:
     return _hash_bytes(*parts).hex()
+
+
+def _secure_random() -> float:
+    return float(struct.unpack('>d', os.urandom(8))[0]) / (2**64)
+
+
+def _current_timestamp() -> float:
+    import time
+    return time.time()
 
 
 class RLBAUAV(BaseUAV):
@@ -60,6 +69,9 @@ class RLBAUAV(BaseUAV):
         self._rlba_success_deadline_gen = 0
         self._d2z_attempt_counter = 0
         self._d2z_attempt_session_id = None
+        # PUF相关
+        self.puf_challenge = None
+        self.puf_response = None
 
     def _d2z_log_extra(self, protocol_step: str) -> dict:
         return {
@@ -102,6 +114,17 @@ class RLBAUAV(BaseUAV):
         self._rlba_success_deadline_gen += 1
         g = self._rlba_success_deadline_gen
         self._safe_schedule(t, self._rlba_success_deadline, g)
+
+    def _generate_puf_response(self, challenge: float) -> float:
+        """生成PUF响应"""
+        # 这里使用哈希函数模拟PUF行为，实际应用中应该使用真实的PUF实现
+        response = _hash_hex(f"PUF:{self.id}:{challenge}")
+        return float(struct.unpack('>d', bytes.fromhex(response[:16]))[0])
+
+    def on_connected_to_zsp(self):
+        """连接到ZSP时的回调方法，RLBA协议中认证由ZSP初始化，所以不自动触发认证"""
+        # RLBA协议中，认证由ZSP初始化，所以这里不自动触发认证
+        pass
 
     def _rlba_success_deadline(self, gen: int):
         if gen != self._rlba_success_deadline_gen:
@@ -160,31 +183,26 @@ class RLBAUAV(BaseUAV):
         max_attempts = self._max_d2z_attempts()
         if max_attempts is not None and self._d2z_attempt_counter >= max_attempts:
             self.logger.log_warning(
-                "D2Z retry budget exhausted; skip new M1",
+                "D2Z retry budget exhausted; skip new auth",
                 warning_type="d2z_retry_budget_exhausted",
                 extra=self._d2z_log_extra("D2Z_RETRY_BUDGET_EXHAUSTED"),
             )
             return
-        self._d2z_attempt_counter += 1
-        self.rn1 = random.random()
-        self.ts1 = random.random() + self.rn1 / 10.0
-        auth_u = _hash_bytes(
-            bytes.fromhex(self.pseudo_id),
-            struct.pack(">d", self.rn1),
-            struct.pack(">d", self.ts1),
-            bytes.fromhex(self.shared_secret),
+        # RLBA协议中，认证由ZSP初始化，所以这里不发送M1消息
+        # 只记录认证初始化事件
+        self.logger.log_authentication(
+            AuthenticationPhase.INITIATED,
+            peer_id=self.zsp_id,
+            extra={
+                "protocol": self.protocol_name,
+                "analysis_family": self.analysis_family,
+                "auth_session_id": self.d2z_auth_session_id,
+                "flow": "D2Z",
+                "protocol_step": "RLBA_INIT",
+                "peer_zsp_id": self.zsp_id,
+                "peer_uav_id": self.id,
+            },
         )
-        payload = RLBAPlaintext.M1.pack(
-            bytes.fromhex(self.pseudo_id),
-            float(self.rn1),
-            float(self.ts1),
-            float(self.zsp_id or 0),
-            auth_u,
-        )
-        mac_input = payload + auth_u + bytes.fromhex(self.shared_secret)
-        packet = RLBAPacket.build(RLBAMessageType.M1, self.pid, payload, mac_input)
-        self.logger.log_message_sent("M1", len(packet), extra=self._d2z_log_extra("RLBA_INIT"))
-        self.SendData(packet)
 
     def ProcessReceivedData(self, packet_bytes):
         packet_bytes = bytes(packet_bytes)
@@ -194,63 +212,67 @@ class RLBAUAV(BaseUAV):
         if pid != self.pid:
             return
 
-        if msg_type == RLBAMessageType.M2:
-            (
-                pseudo_u_bytes,
-                pseudo_d_bytes,
-                rn1,
-                rn2,
-                ts2,
-                auth_d,
-            ) = RLBAPlaintext.M2.unpack(payload)
+        if msg_type == RLBAMessageType.GSS_TO_UAV:
+            # 处理来自GSS的认证请求
+            gss_id_bytes, user_id_bytes, rn1, rn2, ts2, auth_g = RLBAPlaintext.GSS_TO_UAV.unpack(payload)
+            # 生成PUF挑战和响应
+            puf_challenge = _secure_random()
+            puf_response = self._generate_puf_response(puf_challenge)
             expected_auth = _hash_bytes(
-                pseudo_u_bytes,
-                pseudo_d_bytes,
+                gss_id_bytes,
+                user_id_bytes,
                 struct.pack(">d", rn1),
                 struct.pack(">d", rn2),
                 struct.pack(">d", ts2),
+                struct.pack(">d", puf_challenge),
+                struct.pack(">d", puf_response),
                 bytes.fromhex(self.shared_secret),
             )
             expected_mac = _hash_hex(payload, expected_auth, bytes.fromhex(self.shared_secret))
-            if (
-                pseudo_u_bytes.hex() != self.pseudo_id
-                or rn1 != self.rn1
-                or auth_d != expected_auth
-                or mac != expected_mac
-            ):
+            if auth_g != expected_auth or mac != expected_mac:
                 return
-            self.drone_pseudo_id = pseudo_d_bytes.hex()
-            self.rn2 = rn2
-            self.ts2 = ts2
-            self.logger.log_message_received("M2", len(packet_bytes), extra=self._d2z_log_extra("RLBA_CHALLENGE"))
-            self.rn3 = random.random()
-            self.ts3 = random.random() + self.rn3 / 10.0
-            session_key = _hash_bytes(
-                struct.pack(">d", self.rn1),
-                struct.pack(">d", self.rn2),
-                struct.pack(">d", self.rn3),
-                pseudo_u_bytes,
-                pseudo_d_bytes,
+            
+            self.logger.log_message_received("GSS_TO_UAV", len(packet_bytes), extra=self._d2z_log_extra("RLBA_GSS_CHALLENGE"))
+            
+            # 生成安全随机数
+            rn3 = _secure_random()
+            # 使用真实时间戳
+            ts3 = _current_timestamp()
+            
+            # 计算会话密钥
+            session_key_ud = _hash_bytes(
+                struct.pack(">d", rn1),
+                struct.pack(">d", rn2),
+                struct.pack(">d", rn3),
+                user_id_bytes,
+                gss_id_bytes,
+                struct.pack(">d", puf_challenge),
+                struct.pack(">d", puf_response),
             )
-            auth_ud = _hash_bytes(session_key, pseudo_u_bytes, pseudo_d_bytes)
+            
+            # 计算认证值
+            auth_d = _hash_bytes(session_key_ud, user_id_bytes, gss_id_bytes)
             auth_gss = _hash_bytes(
-                pseudo_d_bytes,
-                struct.pack(">d", self.rn1),
-                struct.pack(">d", self.ts3),
+                gss_id_bytes,
+                struct.pack(">d", rn1),
+                struct.pack(">d", ts3),
                 bytes.fromhex(self.shared_secret),
             )
-            m3_payload = RLBAPlaintext.M3.pack(
-                pseudo_u_bytes,
-                pseudo_d_bytes,
-                float(self.rn2),
-                float(self.rn3),
-                float(self.ts3),
-                auth_ud,
+            
+            # 构建UAV到GSS的响应消息
+            uav_to_gss_payload = RLBAPlaintext.UAV_TO_GSS.pack(
+                bytes.fromhex(self.pseudo_id),
+                gss_id_bytes,
+                user_id_bytes,
+                float(rn2),
+                float(rn3),
+                float(ts3),
+                auth_d,
                 auth_gss,
             )
-            m3_mac_input = m3_payload + auth_ud + auth_gss + bytes.fromhex(self.shared_secret)
-            packet = RLBAPacket.build(RLBAMessageType.M3, self.pid, m3_payload, m3_mac_input)
-            self.logger.log_message_sent("M3", len(packet), extra=self._d2z_log_extra("RLBA_RESPONSE"))
+            uav_to_gss_mac_input = uav_to_gss_payload + auth_d + auth_gss + bytes.fromhex(self.shared_secret)
+            packet = RLBAPacket.build(RLBAMessageType.UAV_TO_GSS, self.pid, uav_to_gss_payload, uav_to_gss_mac_input)
+            self.logger.log_message_sent("UAV_TO_GSS", len(packet), extra=self._d2z_log_extra("RLBA_UAV_RESPONSE"))
             self.SendData(packet)
             self._rlba_arm_success_deadline()
             return
@@ -258,11 +280,11 @@ class RLBAUAV(BaseUAV):
         if msg_type == RLBAMessageType.SUCCESS:
             if not self._rlba_pending_final:
                 return
-            pseudo_u_bytes, pseudo_d_bytes, session_key = RLBAPlaintext.SUCCESS.unpack(payload)
-            expected_mac = _hash_hex(payload, session_key, bytes.fromhex(self.shared_secret))
+            # 处理来自GSS的成功消息
+            gss_id_bytes, user_id_bytes, uav_id_bytes, session_key_ug, session_key_ud = RLBAPlaintext.SUCCESS.unpack(payload)
+            expected_mac = _hash_hex(payload, session_key_ug, session_key_ud, bytes.fromhex(self.shared_secret))
             if (
-                pseudo_u_bytes.hex() != self.pseudo_id
-                or pseudo_d_bytes.hex() != (self.drone_pseudo_id or "")
+                uav_id_bytes.hex() != self.pseudo_id
                 or mac != expected_mac
             ):
                 return
@@ -274,7 +296,10 @@ class RLBAUAV(BaseUAV):
                 extra={**self._d2z_log_extra("D2Z_ACK_RECV")},
             )
             self.authenticated = True
-            self.session_key_hash = session_key.hex()
+            self.session_key_hash = session_key_ud.hex()
+            # 更新PID
+            new_pid = _hash_hex(f"RLBA_PID:{self.id}")
+            self.pid = new_pid
             self.logger.log_session_established(
                 session_id=self.d2z_auth_session_id,
                 session_key_hash=self.session_key_hash,

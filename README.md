@@ -1,266 +1,305 @@
-# UAV D2Z 安全认证协议仿真平台
+# UAV D2Z 认证协议仿真平台
 
-面向 **无人机（UAV）与地面站（ZSP）** 的 **PMAP / PMAP_ACK** 入网认证仿真：在 **NS-3** 网络场景中运行协议实体，经 **FastAPI** 提供任务与日志 API，**React** 前端完成仿真管理与结果分析。
+## 项目介绍
 
-## 功能概览
+UAV D2Z 认证协议仿真平台是一个用于模拟和分析无人机（UAV）与地面站（ZSP）之间认证协议性能的综合平台。该平台支持多种认证协议的仿真，包括 PMAP、PMAP_ACK、STATIC_BASELINE 和 RLBA_UAV 等，并提供详细的性能分析和可视化功能。
 
-- **协议**：经典 **PMAP**（M3/M4 后机端立即轮换 PID/CRP）与 **PMAP_ACK**（收 ZSP **D2Z_ACK** 后再提交轮换，支持 ACK 超时重试与会话冗余演示）。
-- **攻击模型**：通过 `attack_model` / `desync_template` 在合法实体侧模拟信道级行为（如上行丢 M3/M4、下行拦 D2Z_ACK）；模板默认 **仅第一次认证** 触发去同步，便于观察恢复路径。
-- **后端**：任务创建/运行、日志与指标、协议分析 API；可选 WebSocket 推送。
-- **前端**：场景与协议选择、任务列表（含 **复制任务 ID**）、任务详情、分析看板。
+### 主要功能
 
-## 仓库结构（节选）
+- **多种认证协议支持**：支持 PMAP、PMAP_ACK、STATIC_BASELINE、RLBA_UAV 等认证协议
+- **丰富的仿真场景**：包括基线场景、边缘恢复、切换窗口认证、蜂群认证、机动应力测试等
+- **实时性能分析**：提供认证成功率、消息效率、时间统计等详细指标
+- **直观的可视化**：会话时间线、事件列表、性能指标图表等
+- **WebSocket 实时推送**：实时推送认证事件和性能指标
+- **可扩展的架构**：模块化设计，易于添加新的认证协议和仿真场景
 
-| 路径 | 说明 |
-|------|------|
-| `Backend/` | FastAPI 应用（`app.py`）、路由、日志/仿真/分析服务 |
-| `Frontend/` | React（CRA）单页应用 |
-| `Entity/` | `PMAP_UAV`、`PMAP_ZSP` 等协议实体 |
-| `Protocol/PMAP/` | 报文类型、二进制包、明文结构 |
-| `Common/` | 攻击模型合并、`desync_attack_template`、日志框架等 |
-| `Simulator/` | 与根目录 `simulator_builder.py` 协同的仿真构建逻辑 |
-| `simulator_builder.py` | NS-3 仿真入口（`ns3 run` 调用），注入 UAV/ZSP 与场景 |
-| `tests/` | `pytest` 用例（模板展开、日志解析等） |
-| `start_platform.sh` | 本地一键启动后端 + 前端（开发模式） |
+## 技术栈
 
-## 环境要求
+### 前端
+- **框架**：React 18.0.0
+- **HTTP 客户端**：Axios 1.4.0
+- **构建工具**：Create React App
+- **开发服务器**：默认端口 3000
 
-- **Python 3**（建议 3.10+），已安装 **NS-3** 与 **cppyy**（仿真脚本依赖 `import ns`）。
-- **Node.js** + **npm**（前端）。
+### 后端
+- **Web 框架**：FastAPI 2.3.0
+- **HTTP 服务器**：Uvicorn
+- **数据处理**：NumPy 1.24.0、Pandas 2.0.0
+- **可视化**：Matplotlib 3.7.0、Plotly 5.14.0
+- **测试**：Pytest 7.3.0
+- **开发服务器**：默认端口 8000
 
-### NS-3 安装说明
+### 依赖管理
+- **前端**：npm
+- **后端**：pip
 
-NS-3 的下载、依赖与编译步骤请以 **`docs/NS3环境配置.md`** 为准。
+## 项目结构
 
-## NS3环境配置
-
-系统：Ubuntu 22.04
-
-+ 首先下载依赖组件
-
-  ```
-  sudo apt install -y g++ python3 cmake ninja-build git python3-dev pkg-config castxml
-  ```
-
-+ 下载cppyy库
-
-  ```
-  pip3 install --user cppyy
-  ```
-
-+ 源码下载与编译
-
-  ```
-  wget https://www.nsnam.org/release/ns-allinone-3.43.tar.bz2
-  tar xjf ns-allinone-3.43.tar.bz2
-  cd ns-allinone-3.43/ns-3.43
-  ./ns3 configure --build-profile=debug --enable-examples --enable-tests --enable-python
-  #观察是否输出有Python Bindings ON
-  
-  ./ns3 build #执行编译
-  ./ns3 run first.py #python运行测试
-  #输出如下
-  At time +2s client sent 1024 bytes to 10.1.1.2 port 9
-  At time +2.00369s server received 1024 bytes from 10.1.1.1 port 49153
-  At time +2.00369s server sent 1024 bytes to 10.1.1.1 port 49153
-  At time +2.00737s client received 1024 bytes from 10.1.1.2 port 9
-  ```
-
-  
-在 **WSL / Linux** 下跑仿真时，仍需按该文档完成 NS-3 与 Python/cppyy 绑定，并在 **`Backend/config.py`** 中把 `NS3_INSTALL_PATH`、`NS3_COMMAND` 改成本机 `ns-3` 目录与 `ns3` 可执行文件路径。
-- 后端运行至少需要：**FastAPI**、**Uvicorn**（`start_platform.sh` 会检查）。其余依赖按代码导入安装；仓库内 `requirements.txt` 可能与当前 FastAPI 栈不完全一致，若缺包可按报错补充安装。
-
-示例：
-
-```bash
-pip install fastapi "uvicorn[standard]" pydantic numpy
+```
+UAV/
+├── Backend/           # 后端服务
+│   ├── api/           # API 路由
+│   ├── analysis/      # 数据分析模块
+│   ├── core/          # 核心功能模块
+│   ├── services/      # 服务模块
+│   ├── app.py         # 主应用
+│   └── config.py      # 配置文件
+├── Frontend/          # 前端应用
+│   ├── public/        # 静态资源
+│   ├── src/           # 源代码
+│   │   ├── components/ # 组件
+│   │   ├── App.jsx    # 主应用组件
+│   │   └── index.js   # 入口文件
+│   ├── package.json   # 依赖配置
+│   └── package-lock.json
+├── experiments/       # 实验配置
+├── logs/              # 日志目录
+├── tasks/             # 仿真任务目录
+├── tests/             # 测试文件
+├── start_platform.sh  # 启动脚本
+├── requirements.txt   # 后端依赖
+└── README.md          # 项目说明
 ```
 
-前端依赖：
+## 安装与启动
 
-```bash
-cd Frontend && npm install
-```
+### 前置条件
 
-## 快速启动
+- **Python 3.8+**
+- **Node.js 14+**
+- **npm 6+**
 
-在项目根目录执行：
+### 安装步骤
+
+1. **克隆项目**
+
+   ```bash
+   git clone <repository-url>
+   cd UAV
+   ```
+
+2. **安装后端依赖**
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **安装前端依赖**
+
+   ```bash
+   cd Frontend
+   npm install
+   cd ..
+   ```
+
+### 启动服务
+
+使用一键启动脚本启动整个平台：
 
 ```bash
 ./start_platform.sh
 ```
 
-默认：
+**启动选项**：
 
-- 后端：<http://127.0.0.1:8000>（API 前缀 `/api/v1`，健康检查 `/health`）
-- 前端：<http://127.0.0.1:3000>（`Frontend/package.json` 中 `proxy` 指向后端）
+- `BACKEND_PORT`：后端服务端口（默认 8000）
+- `FRONTEND_PORT`：前端服务端口（默认 3000）
+- `SKIP_FRONTEND`：设为 1 时仅启动后端
+- `SKIP_BACKEND`：设为 1 时仅启动前端
 
-常用环境变量（可选）：
+**示例**：
 
-| 变量 | 含义 |
-|------|------|
-| `BACKEND_PORT` | 后端端口，默认 `8000` |
-| `FRONTEND_PORT` | 前端端口，默认 `3000` |
-| `SKIP_FRONTEND=1` | 仅启动后端 |
-| `SKIP_BACKEND=1` | 仅启动前端 |
-| `BROWSER=none` | 禁止前端自动打开浏览器 |
+```bash
+# 使用自定义端口
+BACKEND_PORT=8080 FRONTEND_PORT=3001 ./start_platform.sh
 
-## 配置说明
-
-编辑 **`Backend/config.py`**（或后续改为环境变量）以匹配本机路径：
-
-- **`SIMULATION_TASKS_DIR`**：仿真任务与 `config.json` 落盘目录（默认 `~/UAV_Simulation/tasks`）。
-- **`NS3_INSTALL_PATH` / `NS3_COMMAND`**：本地 NS-3 安装与 `ns3` 可执行文件。
-- **`SIMULATOR_SCRIPT`**：指向仓库根目录的 `simulator_builder.py`。
-- **`LOG_DIR`**：与实体日志输出一致的目录。
-
-修改后需重启后端进程。
-
-## API 与前端
-
-- REST：`/api/v1/simulation/...`、`/api/v1/analysis/...` 等（见 `Backend/api/routes/`）。
-- 前端开发态通过 **proxy** 访问后端；生产构建时需将 `Frontend` 内 API 基地址与部署域名对齐。
-
-## 阶段0基线场景
-
-为保证后续做动态性增强、多协议扩展与批量实验时不引入回归，当前建议先固定以下 3 个前端场景作为阶段0基线：
-
-- `baseline_d2z`
-- `pmap_ack_baseline`
-- `pmap_ack_attack_drop_ack`
-
-它们分别对应：
-
-- 经典 PMAP 的稳定入网基线
-- `PMAP_ACK` 的正常 ACK 提交路径
-- `PMAP_ACK` 的首次去同步后恢复路径
-
-建议在进入下一阶段前，至少确认以下检查项：
-
-- 基线 D2Z 能成功完成
-- `PMAP_ACK` 基线能正常走到 `D2Z_ACK_RECV -> D2Z_SUCCESS`
-- 去同步场景能出现一次 `D2Z_ACK_TIMEOUT`，随后恢复成功
-- 分析页能正确展示会话、成功率与时间线
-
-## 阶段1最小切口
-
-当前已补入两项“只扩骨架、不破基线”的动态能力：
-
-- `mobility.type = "trace"`：允许 UAV 从外部 JSON 轨迹文件加载航迹点。
-- `auth_trigger`：允许为 UAV 配置认证触发策略，当前支持：
-  - `initial_on_connect`
-  - `time_offsets_s`
-  - `edge_rssi_threshold`
-  - `cooldown_s`
-  - `allow_reauth`
-
-轨迹文件示例：
-
-```json
-{
-  "waypoints": [
-    [0, [0, 0, 100]],
-    [5, [100, 0, 100]],
-    [10, [180, 40, 110]]
-  ]
-}
+# 仅启动后端
+SKIP_FRONTEND=1 ./start_platform.sh
 ```
 
-UAV 配置示例：
+## 使用指南
 
-```json
-{
-  "id": 1,
-  "mobility": {
-    "type": "trace",
-    "trace_file": "traces/uav-1.json"
-  },
-  "auth_trigger": {
-    "initial_on_connect": true,
-    "time_offsets_s": [8, 16],
-    "edge_rssi_threshold": -82,
-    "cooldown_s": 4,
-    "allow_reauth": false
-  }
-}
-```
+### 1. 仿真管理
 
-说明：
+通过前端界面（http://localhost:3000）的「仿真管理」页面创建和管理仿真任务：
 
-- `trace_file` 支持相对 `config.json` 所在目录解析。
-- 默认配置下，现有阶段0场景行为不变。
-- 阶段1当前是“触发骨架”，用于支撑后续任务驱动认证、边缘触发认证和轨迹回放实验。
+1. **选择认证场景**：从下拉菜单中选择预设的仿真场景
+2. **配置场景参数**：根据场景类型调整蜂群规模、密度、机动性等参数
+3. **选择认证协议**：选择要测试的认证协议
+4. **设置任务名称**：（可选）输入自定义任务名称
+5. **创建任务**：点击「创建任务」按钮
+6. **运行任务**：在任务列表中点击「运行」按钮启动仿真
 
-前端当前还补入了两个可直接创建的阶段1预置场景：
+### 2. 数据分析
 
-- `dynamic_edge_recovery`
-  - 单 UAV 沿覆盖边缘移动
-  - 由 `edge_rssi_threshold` 触发认证
-  - 首次抑制 `D2Z_ACK` 后观察恢复
-- `swarm_burst_auth`
-  - 支持 `10 / 30 / 50 / 100` UAV 规模档位
-  - 由 `time_offsets_s` 在任务启动窗口集中触发认证
-  - 作为大规模并发认证实验入口
+通过前端界面的「分析仪表板」页面查看仿真结果：
 
-阶段1现已扩展为完整动态场景集：
+1. **输入任务 ID**：（可选）输入特定任务的 ID 以查看该任务的结果
+2. **查看性能指标**：查看认证成功率、消息效率、时间统计等指标
+3. **分析会话列表**：查看详细的认证会话信息，包括状态、触发来源、耗时等
+4. **查看时间线**：点击会话的「时间线」按钮，查看详细的认证过程时间线
+5. **监控事件**：查看最新的认证事件
 
-- 运动模式：
-  - `trace`：外部轨迹回放
-  - `patrol`：轨迹巡检
-  - `formation`：编队起飞/群飞
-  - `transit`：高速转场
-- 认证触发：
-  - `initial_on_connect`
-  - `time_offsets_s`
-  - `edge_rssi_threshold`
-  - `on_handover`
-- 链路状态：
-  - `comm_range_m`
-  - `edge_rssi_threshold`
-  - `loss_windows`
-  - `drop_when_out_of_range`
+### 3. API 接口
 
-阶段1前端预置场景包括：
+后端提供以下 API 接口：
 
-- `dynamic_edge_recovery_natural`
-- `dynamic_edge_recovery_attack`
-- `handover_window_reauth`
-- `formation_takeoff_swarm`
-- `swarm_burst_network`
-- `swarm_burst_compute`
-- `high_speed_burst_loss`
+#### 健康检查
+- **GET /api/v1/health**：检查服务健康状态
 
-可视化分析中也已支持：
+#### 仿真管理
+- **POST /api/v1/simulation/create**：创建新的仿真任务
+- **POST /api/v1/simulation/run/{task_id}**：运行指定的仿真任务
+- **GET /api/v1/simulation/status/{task_id}**：获取任务状态
+- **GET /api/v1/simulation/list**：获取任务列表
 
-- 会话级 `trigger_reason` / `trigger_step`
-- 任务级 `triggers.breakdown` 统计
-- `Success vs Distance`
-- `Recovery Completion Ratio`
-- `Re-authentication Cost`
+#### 数据分析
+- **GET /api/v1/metrics/summary**：获取性能指标摘要
+- **GET /api/v1/analysis/sessions**：获取认证会话列表
+- **GET /api/v1/analysis/events**：获取认证事件列表
+- **GET /api/v1/analysis/sessions/{uav_id}/{zsp_id}/timeline**：获取特定 UAV-ZSP 对的认证时间线
 
-阶段1.5 文献对齐补强后，主实验口径建议固定为：
+#### WebSocket
+- **/ws/d2z-events**：实时推送认证事件
+- **/ws/d2z-metrics**：实时推送性能指标
 
-- 主实验 A：
-  - `dynamic_edge_recovery_natural`：自然移动诱发恢复需求
-  - `dynamic_edge_recovery_attack`：恶意 ACK 抑制诱发恢复
-- 主实验 B：
-  - `swarm_burst_network`：固定协议代价，仅看并发接入冲击
-  - `swarm_burst_compute`：同一网络拓扑下引入统一响应延迟，模拟更重型协议计算代价
+## 仿真场景
 
-如果以阶段进度表的“完成标志”为准，当前阶段1已经具备：
+平台支持多种仿真场景，包括：
 
-- 10/30/50/100 UAV 规模场景入口
-- 位置/任务/切换窗口驱动认证触发
-- 距离/边缘/失联窗口与链路状态显式绑定
-- 动态场景的前端创建入口与后端分析出口
+### 基线场景
+- **基线 D2Z**：双 UAV、双 ZSP，航点移动，标准 PMAP 入网认证
+- **PMAP_ACK 基线**：单 UAV 单塔，验证 D2Z_ACK 后双方再提交 PID/CRP 的正常路径
+
+### 动态场景
+- **边缘恢复**：单 UAV 沿固定巡检轨迹飞行，以距离 + RSSI 联合判据进入 edge 区域后触发认证
+- **切换窗口认证**：单 UAV 在两个 ZSP 覆盖区之间穿行，发生切换时在切换窗口触发认证
+- **编队起飞群飞**：多 UAV 按编队偏移跟随统一锚点航迹，模拟编队起飞/群飞
+- **高速转场失联恢复**：单 UAV 高速转场，通过预设 loss window 模拟突发失联窗口
+
+### 蜂群认证
+- **蜂群认证（网络拥塞）**：多架 UAV 在任务启动窗口集中触发 D2Z 认证，用于观察并发接入压力
+- **蜂群认证（计算敏感性）**：与网络拥塞场景保持相同蜂群拓扑，但在 ZSP 侧注入统一响应延迟
+
+### 机动应力测试
+- **机动应力测试**：测试不同机动性档位下的认证协议性能，支持调整网络规模、密度和 GM3D 应力档位
+
+## 认证协议
+
+平台支持以下认证协议：
+
+- **PMAP**：经典协议，发完 M3/M4 即本地换 PID
+- **PMAP_ACK**：会话冗余协议，收 ZSP 的 D2Z_ACK 后才换 PID
+- **STATIC_BASELINE**：静态/预共享身份基线协议
+- **RLBA_UAV**：三方 AKA 的平台映射版对照协议
 
 ## 测试
 
+### 运行测试
+
 ```bash
-cd /path/to/UAV
-python3 -m pytest tests/ -q
+# 运行所有测试
+pytest
+
+# 运行特定测试文件
+pytest tests/test_api.py
 ```
 
-## 许可与贡献
+### 测试覆盖
 
-未随仓库声明默认许可证；使用前请与维护者确认。欢迎通过 Issue / PR 贡献（建议先跑通 `pytest` 与一次完整仿真任务）。
+- **API 测试**：测试后端 API 接口的功能
+- **日志解析测试**：测试日志解析功能
+- **场景输入测试**：测试仿真场景配置的正确性
+- **协议注册表测试**：测试协议注册和管理功能
+
+## 配置
+
+### 后端配置
+
+后端配置文件位于 `Backend/config.py`，主要配置项包括：
+
+- **APP_NAME**：应用名称
+- **APP_VERSION**：应用版本
+- **LOG_DIR**：日志目录
+- **SIMULATION_TASKS_DIR**：仿真任务目录
+- **NS3_INSTALL_PATH**：NS-3 仿真器安装路径
+- **API_V1_PREFIX**：API 前缀
+- **CORS_ORIGINS**：CORS 允许的源
+
+### 前端配置
+
+前端配置文件位于 `Frontend/package.json`，主要配置项包括：
+
+- **dependencies**：前端依赖
+- **scripts**：构建和运行脚本
+- **proxy**：后端 API 代理配置
+
+## 日志管理
+
+仿真日志存储在 `logs/` 目录中，按任务 ID 组织。日志包含详细的认证事件、性能指标和错误信息，用于分析认证协议的性能和问题排查。
+
+## 故障排除
+
+### 常见问题
+
+1. **前端无法连接后端**
+   - 检查后端服务是否运行
+   - 检查 `Frontend/package.json` 中的 proxy 配置
+   - 检查网络防火墙设置
+
+2. **仿真任务失败**
+   - 检查 NS-3 仿真器是否正确安装
+   - 检查仿真场景配置是否正确
+   - 查看日志文件获取详细错误信息
+
+3. **性能指标显示异常**
+   - 检查日志文件是否存在
+   - 检查日志格式是否正确
+   - 检查后端服务是否正常运行
+
+## 扩展与开发
+
+### 添加新的认证协议
+
+1. 在后端的协议注册表中注册新协议
+2. 实现协议的核心逻辑
+3. 在前端的协议选项中添加新协议
+
+### 添加新的仿真场景
+
+1. 在前端的 `SCENARIOS` 数组中添加新场景配置
+2. 实现场景的拓扑生成逻辑
+3. 在后端添加对应的场景处理逻辑
+
+### 开发流程
+
+1. **前端开发**：在 `Frontend/` 目录中进行开发，使用 `npm start` 启动开发服务器
+2. **后端开发**：在 `Backend/` 目录中进行开发，使用 `python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload` 启动开发服务器
+3. **测试**：使用 `pytest` 运行测试，确保代码质量
+4. **构建**：使用 `npm run build` 构建前端生产版本
+
+## 贡献
+
+欢迎对项目进行贡献，包括：
+
+- 修复 bug
+- 添加新功能
+- 改进文档
+- 优化性能
+
+## 许可证
+
+本项目采用 MIT 许可证。
+
+## 联系方式
+
+如有问题或建议，请通过以下方式联系：
+
+- 项目维护者：[维护者姓名]
+- 邮箱：[email@example.com]
+- GitHub：[repository-url]
+
+---
+
+**版本：1.0.0**
+**最后更新：2026-04-23**

@@ -46,7 +46,7 @@ class PMAP_ZSP(BaseZSP):
         node,
         zsp_id,
         blockchain=None,
-        enable_blockchain=True,
+        enable_blockchain=False,
         attack_model=None,
         d2z_ack_mode: bool = False,
         compute_profile=None,

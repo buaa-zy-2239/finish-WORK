@@ -46,6 +46,8 @@ class MobilityFactory:
 
         elif mtype == "gauss_markov_3d":
             MobilityFactory._install_gauss_markov_3d(node, mobility_conf)
+        elif mtype == "ns3::GaussMarkovMobilityModel":
+            MobilityFactory._install_ns3_gauss_markov(node, mobility_conf)
 
         else:
             raise ValueError(f"Unknown mobility type: {mtype}")
@@ -207,20 +209,39 @@ class MobilityFactory:
 
         random.seed(seed + node.GetId())
 
-        # 初始位置 (随机在3D空间)
-        x = random.uniform(-area_size/2, area_size/2)
-        y = random.uniform(-area_size/2, area_size/2)
-        z = random.uniform(50, 50 + altitude_range)
+        # 初始位置 (优先使用配置文件中的初始位置，否则随机生成)
+        initial_position = mobility_conf.get("initial_position")
+        if initial_position:
+            x = float(initial_position[0])
+            y = float(initial_position[1])
+            z = float(initial_position[2])
+        else:
+            x = random.uniform(-area_size/2, area_size/2)
+            y = random.uniform(-area_size/2, area_size/2)
+            z = random.uniform(50, 50 + altitude_range)
         pos = [x, y, z]
 
-        # 初始速度向量 (球坐标随机)
-        speed = max(random.gauss(speed_mean, speed_std), 5.0)  # 最小5m/s
-        theta = random.uniform(0, 2 * math.pi)  # 水平方向
-        phi = random.uniform(0, math.pi)  # 垂直方向 (0=up, pi=down)
-
-        vx = speed * math.sin(phi) * math.cos(theta)
-        vy = speed * math.sin(phi) * math.sin(theta)
-        vz = speed * math.cos(phi)
+        # 初始速度向量 (优先使用配置文件中的初始速度，否则随机生成)
+        initial_velocity = mobility_conf.get("initial_velocity")
+        if initial_velocity:
+            vx = float(initial_velocity[0])
+            vy = float(initial_velocity[1])
+            vz = float(initial_velocity[2])
+            # 计算初始速度对应的方向角
+            speed = math.sqrt(vx*vx + vy*vy + vz*vz)
+            if speed > 0:
+                theta = math.atan2(vy, vx)
+                phi = math.atan2(math.sqrt(vx*vx + vy*vy), vz)
+            else:
+                theta = random.uniform(0, 2 * math.pi)
+                phi = random.uniform(0, math.pi)
+        else:
+            speed = max(random.gauss(speed_mean, speed_std), 5.0)  # 最小5m/s
+            theta = random.uniform(0, 2 * math.pi)  # 水平方向
+            phi = random.uniform(0, math.pi)  # 垂直方向 (0=up, pi=down)
+            vx = speed * math.sin(phi) * math.cos(theta)
+            vy = speed * math.sin(phi) * math.sin(theta)
+            vz = speed * math.cos(phi)
 
         # 生成轨迹
         waypoints = [[0.0, list(pos)]]
@@ -281,6 +302,55 @@ class MobilityFactory:
     # =========================
     # Gauss-Markov 3D - 真正的运行时版本
     # =========================
+
+    @staticmethod
+    def _install_ns3_gauss_markov(node, mobility_conf):
+        """
+        使用ns-3内置的GaussMarkovMobilityModel
+        
+        直接使用ns-3的内置实现，无需自行计算航点
+        """
+        helper = ns.MobilityHelper()
+        
+        # 构建属性字典
+        attributes = {
+            "Bounds": mobility_conf.get("Bounds", "0, 600, 0, 600, 30, 200"),
+            "TimeStep": mobility_conf.get("TimeStep", "0.1s"),
+            "Alpha": mobility_conf.get("Alpha", 0.7),
+            "MeanVelocity": mobility_conf.get("MeanVelocity", "ns3::UniformRandomVariable[Min=5|Max=5]"),
+            "MeanDirection": mobility_conf.get("MeanDirection", "ns3::UniformRandomVariable[Min=0|Max=6.283185307]"),
+            "MeanPitch": mobility_conf.get("MeanPitch", "ns3::UniformRandomVariable[Min=0.0|Max=0.0]"),
+            "NormalVelocity": mobility_conf.get("NormalVelocity", "ns3::NormalRandomVariable[Mean=0.0|Variance=25.0|Bound=10.0]"),
+            "NormalDirection": mobility_conf.get("NormalDirection", "ns3::NormalRandomVariable[Mean=0.0|Variance=0.2|Bound=0.4]"),
+            "NormalPitch": mobility_conf.get("NormalPitch", "ns3::NormalRandomVariable[Mean=0.0|Variance=400.0|Bound=40.0]"),
+        }
+        
+        # 设置移动模型
+        helper.SetMobilityModel(
+            "ns3::GaussMarkovMobilityModel",
+            "Bounds", ns.BoxValue(ns.Box(*[float(x) for x in attributes["Bounds"].split(",")])),
+            "TimeStep", ns.TimeValue(ns.Seconds(float(attributes["TimeStep"].replace("s", "")))),
+            "Alpha", ns.DoubleValue(float(attributes["Alpha"])),
+            "MeanVelocity", ns.StringValue(attributes["MeanVelocity"]),
+            "MeanDirection", ns.StringValue(attributes["MeanDirection"]),
+            "MeanPitch", ns.StringValue(attributes["MeanPitch"]),
+            "NormalVelocity", ns.StringValue(attributes["NormalVelocity"]),
+            "NormalDirection", ns.StringValue(attributes["NormalDirection"]),
+            "NormalPitch", ns.StringValue(attributes["NormalPitch"]),
+        )
+        
+        # 设置位置分配器
+        helper.SetPositionAllocator(
+            "ns3::RandomBoxPositionAllocator",
+            "X", ns.StringValue("ns3::UniformRandomVariable[Min=0|Max=600]"),
+            "Y", ns.StringValue("ns3::UniformRandomVariable[Min=0|Max=600]"),
+            "Z", ns.StringValue("ns3::UniformRandomVariable[Min=30|Max=200]")
+        )
+        
+        # 安装到节点
+        container = ns.NodeContainer()
+        container.Add(node)
+        helper.Install(container)
 
     @staticmethod
     def _install_gauss_markov_3d_runtime(node, mobility_conf):
@@ -414,7 +484,7 @@ class MobilityFactory:
             
             # 8. 安排下一次更新
             ns.Simulator.Schedule(ns.Seconds(0.1), update_position)
-        
+
         # 启动更新循环
         ns.Simulator.Schedule(ns.Seconds(0.0), update_position)
         

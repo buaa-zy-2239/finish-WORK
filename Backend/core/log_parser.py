@@ -26,6 +26,16 @@ class D2ZLogParser:
         "SESSION_ESTABLISHED": "session",
     }
 
+    # RLBA协议消息类型映射
+    RLBA_MESSAGE_TYPES = {
+        "USER_REQUEST": "USER_REQUEST",
+        "GSS_TO_UAV": "GSS_TO_UAV",
+        "UAV_TO_GSS": "UAV_TO_GSS",
+        "GSS_TO_USER": "GSS_TO_USER",
+        "USER_CONFIRM": "USER_CONFIRM",
+        "SUCCESS": "SUCCESS",
+    }
+
     @staticmethod
     def parse_log_line(line: str) -> Optional[Dict[str, Any]]:
         """解析单行日志"""
@@ -50,9 +60,10 @@ class D2ZLogParser:
     def _resolve_ids(
         entity_type: str, entity_id: int, details: Dict[str, Any]
     ) -> Tuple[int, Optional[int]]:
-        """解析逻辑 UAV / ZSP id（ZSP 文件中的 entity_id 为 ZSP）。"""
+        """解析逻辑 UAV / ZSP / User id。"""
         peer_zsp = details.get("peer_zsp_id", details.get("peer_id"))
         peer_uav = details.get("peer_uav_id", details.get("uav_id"))
+        peer_user = details.get("peer_user_id", details.get("user_id"))
 
         if entity_type == "UAV":
             uav_id = int(entity_id)
@@ -83,6 +94,17 @@ class D2ZLogParser:
                 except (TypeError, ValueError):
                     uav_id = -1
             return uav_id, zsp_id
+
+        if entity_type == "User":
+            # 用户实体，返回-1作为uav_id，zsp_id为GSS ID
+            user_id = int(entity_id)
+            zsp_id = peer_zsp
+            if zsp_id is not None:
+                try:
+                    zsp_id = int(zsp_id)
+                except (TypeError, ValueError):
+                    zsp_id = None
+            return -1, zsp_id
 
         return int(entity_id), peer_zsp
 
@@ -182,31 +204,73 @@ class D2ZLogParser:
         elif event_type == "MESSAGE_SENT":
             message_type = details.get("message_type", "") or ""
             payload_size = int(details.get("payload_size", 0) or 0)
-            if message_type == "M1":
-                phase = D2ZPhase.M1_SENT
-            elif message_type == "M2":
-                phase = D2ZPhase.M2_SENT
-            elif message_type in ("M3", "M4", "M3_M4", "M3_4"):
-                phase = D2ZPhase.M3_M4_SENT
-            elif message_type == "D2Z_ACK":
-                phase = D2ZPhase.ACK_RECEIVED
+            protocol = details.get("protocol", "PMAP")
+            
+            # 根据协议类型处理消息
+            if protocol == "RLBA" or message_type in D2ZLogParser.RLBA_MESSAGE_TYPES:
+                # 处理RLBA协议消息
+                if message_type == "USER_REQUEST":
+                    phase = D2ZPhase.INITIATED
+                elif message_type == "GSS_TO_UAV":
+                    phase = D2ZPhase.M2_SENT
+                elif message_type == "UAV_TO_GSS":
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "GSS_TO_USER":
+                    phase = D2ZPhase.M1_SENT
+                elif message_type == "USER_CONFIRM":
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "SUCCESS":
+                    phase = D2ZPhase.SUCCESS
+                else:
+                    return None
             else:
-                return None
+                # 处理PMAP协议消息
+                if message_type == "M1":
+                    phase = D2ZPhase.M1_SENT
+                elif message_type == "M2":
+                    phase = D2ZPhase.M2_SENT
+                elif message_type in ("M3", "M4", "M3_M4", "M3_4"):
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "D2Z_ACK":
+                    phase = D2ZPhase.ACK_RECEIVED
+                else:
+                    return None
 
         elif event_type == "MESSAGE_RECEIVED":
             message_type = details.get("message_type", "") or ""
-            # 过滤掉M2接收消息
-            if message_type == "M2":
+            # 过滤掉M2接收消息（仅PMAP协议）
+            if message_type == "M2" and details.get("protocol", "PMAP") == "PMAP":
                 return None
             payload_size = int(details.get("payload_size", 0) or 0)
-            if message_type == "M1":
-                phase = D2ZPhase.M1_RECEIVED
-            elif message_type in ("M3", "M4", "M3_M4", "M3_4"):
-                phase = D2ZPhase.M3_M4_SENT
-            elif message_type == "D2Z_ACK":
-                phase = D2ZPhase.ACK_RECEIVED
+            protocol = details.get("protocol", "PMAP")
+            
+            # 根据协议类型处理消息
+            if protocol == "RLBA" or message_type in D2ZLogParser.RLBA_MESSAGE_TYPES:
+                # 处理RLBA协议消息
+                if message_type == "USER_REQUEST":
+                    phase = D2ZPhase.M1_RECEIVED
+                elif message_type == "GSS_TO_UAV":
+                    phase = D2ZPhase.M2_RECEIVED
+                elif message_type == "UAV_TO_GSS":
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "GSS_TO_USER":
+                    phase = D2ZPhase.M1_RECEIVED
+                elif message_type == "USER_CONFIRM":
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "SUCCESS":
+                    phase = D2ZPhase.SUCCESS
+                else:
+                    return None
             else:
-                return None
+                # 处理PMAP协议消息
+                if message_type == "M1":
+                    phase = D2ZPhase.M1_RECEIVED
+                elif message_type in ("M3", "M4", "M3_M4", "M3_4"):
+                    phase = D2ZPhase.M3_M4_SENT
+                elif message_type == "D2Z_ACK":
+                    phase = D2ZPhase.ACK_RECEIVED
+                else:
+                    return None
 
         elif event_type == "SESSION_ESTABLISHED":
             phase = D2ZPhase.SESSION_KEY_ESTABLISHED
@@ -372,42 +436,36 @@ class D2ZLogParser:
                         # 找到所有发生在当前事件时间之前或同时的M3/M4丢包事件
                         for drop_time in m3m4_dropped_events[session_key]:
                             if drop_time <= e.sim_time:
-                                # 检查事件类型，如果是ZSP侧的M3/M4接收、会话密钥建立或认证成功事件，关联到原来的子会话
-                                # 因为这些事件表示M3/M4最终成功发送并被接收，应该属于原来的子会话
+                                # 检查事件类型，如果是ZSP侧的M3/M4接收、会话密钥建立或认证成功事件，应该关联到新的子会话
+                                # 因为这些事件表示重试后的成功，属于新的子会话
                                 if e.phase in [D2ZPhase.M3_M4_SENT, D2ZPhase.SESSION_KEY_ESTABLISHED, D2ZPhase.SUCCESS] or \
                                    (e.protocol_step and ('M3_M4_RECV' in e.protocol_step or 'SESSION_KEY' in e.protocol_step or 'SUCCESS' in e.protocol_step)):
-                                    # 找到M3/M4丢包事件对应的子会话ID
+                                    # 找到M3/M4丢包事件对应的子会话ID，然后使用下一个子会话ID
                                     latest_subsession = -1
                                     for subsession_id, event_time in subsession_history[session_key]:
                                         if event_time <= drop_time:
                                             latest_subsession = max(latest_subsession, subsession_id)
-                                    # 选择M3/M4丢包事件对应的子会话ID，而不是新的子会话
-                                    best_subsid = latest_subsession
+                                    # 选择M3/M4丢包事件对应的子会话ID + 1，即新的子会话
+                                    best_subsid = latest_subsession + 1
                                     break
                     
                     # 如果没有找到，使用时间范围匹配
                     if best_subsid is None:
-                        best_match = float('inf')
                         # 遍历所有子会话，找到时间范围包含当前事件时间的子会话
+                        # 或者找到时间范围在事件时间之前且最接近的子会话
+                        best_subsid = None
+                        best_end_time = -1
+                        
                         for (uav_id, zsp_id, session_id, subsession_id), (start_time, end_time) in subsession_time_ranges.items():
                             if uav_id == original_uav_id and zsp_id == int(e.zsp_id) and session_id == best_sid:
-                                # 计算事件时间与子会话时间范围的距离
                                 if start_time <= e.sim_time <= end_time:
                                     # 事件时间在子会话时间范围内，直接匹配
                                     best_subsid = subsession_id
                                     break
-                                elif e.sim_time < start_time:
-                                    # 事件时间在子会话开始之前，计算距离
-                                    distance = start_time - e.sim_time
-                                    if distance < best_match:
-                                        best_match = distance
-                                        best_subsid = subsession_id
-                                elif e.sim_time > end_time:
-                                    # 事件时间在子会话结束之后，计算距离
-                                    distance = e.sim_time - end_time
-                                    if distance < best_match:
-                                        best_match = distance
-                                        best_subsid = subsession_id
+                                elif end_time <= e.sim_time and end_time > best_end_time:
+                                    # 事件时间在子会话结束之后，选择结束时间最接近的子会话
+                                    best_end_time = end_time
+                                    best_subsid = subsession_id
                     
                     # 直接使用事件的子会话ID，不根据M3/M4丢包事件调整
                     # 这样，每个子会话都会以M1开始，符合要求
@@ -470,12 +528,15 @@ class D2ZLogParser:
 
     @staticmethod
     def parse_all_logs(log_dir: str) -> List[D2ZEvent]:
-        """解析目录下所有 UAV/ZSP 日志"""
+        """解析目录下所有 UAV/ZSP/User 日志"""
         all_events: List[D2ZEvent] = []
         log_pattern = os.path.join(log_dir, "sim_*_UAV_*.jsonl")
         log_files = glob.glob(log_pattern)
         zsp_pattern = os.path.join(log_dir, "sim_*_ZSP_*.jsonl")
         log_files.extend(glob.glob(zsp_pattern))
+        # 添加对用户日志文件的支持
+        user_pattern = os.path.join(log_dir, "sim_*_User_*.jsonl")
+        log_files.extend(glob.glob(user_pattern))
         print(f"[LOG_PARSER] Found {len(log_files)} log files in {log_dir}")
         for log_file in sorted(log_files):
             all_events.extend(D2ZLogParser.parse_file(log_file))

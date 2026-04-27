@@ -436,34 +436,16 @@ def build_unified_config(
             initial_z = max(50.0, min(120.0, initial_z))  # 高度50-120m
             movement_area_size = 600.0  # 600m x 600m 移动区域
             mobility_config = {
-                "type": "gauss_markov_3d",
-                "seed": gm_seed,
-                "alpha": gm3d_config["alpha"],
-                "mean_speed_mps": gm3d_config["mean_speed_mps"],
-                "speed_std_mps": gm3d_config["speed_std_mps"],
-                "mean_altitude_m": gm3d_config["mean_altitude_m"],
-                "altitude_std_m": gm3d_config["altitude_std_m"],
-                # 关键：区域边界参数（运行时GM3D必需）
-                "area_size_x": movement_area_size,
-                "area_size_y": movement_area_size,
-                "min_altitude_m": 30.0,
-                "max_altitude_m": 200.0,
-                # 初始位置和速度
-                "initial_position": [round(initial_x, 2), round(initial_y, 2), round(initial_z, 2)],
-                "initial_velocity": [
-                    round(rng.uniform(-gm3d_config["mean_speed_mps"], gm3d_config["mean_speed_mps"]), 2),
-                    round(rng.uniform(-gm3d_config["mean_speed_mps"], gm3d_config["mean_speed_mps"]), 2),
-                    round(rng.uniform(-2.0, 2.0), 2),
-                ],
-                "position_update_interval_s": 0.1,  # 10Hz更新（顶会标准）
-                # 集群行为参数
-                "cluster_behavior": {
-                    "enabled": size > 10,
-                    "cluster_id": uid // max(1, size // 5),
-                    "cohesion_weight": 0.3,
-                    "separation_weight": 0.5,
-                    "alignment_weight": 0.2,
-                },
+                "type": "ns3::GaussMarkovMobilityModel",
+                "Bounds": f"0, {movement_area_size}, 0, {movement_area_size}, 30, 200",
+                "TimeStep": "0.1s",
+                "Alpha": gm3d_config["alpha"],
+                "MeanVelocity": f"ns3::UniformRandomVariable[Min={gm3d_config['mean_speed_mps']}|Max={gm3d_config['mean_speed_mps']}",
+                "MeanDirection": "ns3::UniformRandomVariable[Min=0|Max=6.283185307]",
+                "MeanPitch": "ns3::UniformRandomVariable[Min=0.0|Max=0.0]",
+                "NormalVelocity": f"ns3::NormalRandomVariable[Mean=0.0|Variance={(gm3d_config['speed_std_mps']**2):.2f}|Bound={(gm3d_config['speed_std_mps']*2):.2f}",
+                "NormalDirection": "ns3::NormalRandomVariable[Mean=0.0|Variance=0.2|Bound=0.4]",
+                "NormalPitch": "ns3::NormalRandomVariable[Mean=0.0|Variance=400.0|Bound=40.0]"
             }
             # GM3D模式下仍需要初始航点用于可视化参考
             waypoints = _task_waypoints(uid, seed, max_speed_mps=max_speed_task_random_mps)

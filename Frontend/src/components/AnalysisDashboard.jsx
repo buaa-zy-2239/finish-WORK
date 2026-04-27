@@ -353,7 +353,6 @@ export const AnalysisDashboard = () => {
           <div className="grouped-sessions">
             {Object.values(groupedSessions).map((group) => {
               const pairKey = `${group.uavId}-${group.zspId}`;
-              const droppedPackets = metrics?.mechanism?.dropped_packets_by_pair?.[pairKey] || { M1: 0, M2: 0, M3_M4: 0, total: 0 };
               
               return (
                 <div key={pairKey} className="session-group">
@@ -531,6 +530,24 @@ export const AnalysisDashboard = () => {
                   {formatNumber((metrics.mechanism.reauthentication_cost?.retry_successes || 0))}
                 </span>
               </div>
+              <div className="metric-item">
+                <span className="label">重认证额外消息：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_messages_vs_baseline || 0)}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重认证额外字节：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_bytes_vs_baseline || 0)}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">重认证额外时延：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.reauthentication_cost?.extra_duration_vs_baseline || 0)} s
+                </span>
+              </div>
             </div>
 
             <div className="metric-card">
@@ -551,6 +568,40 @@ export const AnalysisDashboard = () => {
                 <span className="label">平均加速度：</span>
                 <span className="value">
                   {formatNumber(metrics.mechanism?.mobility_metrics?.avg_acceleration_mps2 || 0)} m/s²
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">拓扑动态性：</span>
+                <span className="value">
+                  {metrics.mechanism?.mobility_metrics?.topology_dynamicity || '未知'}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">预期链路寿命：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.mobility_metrics?.expected_link_lifetime_s || 0)} s
+                </span>
+              </div>
+            </div>
+
+            <div className="metric-card">
+              <h3>子会话分析</h3>
+              <div className="metric-item">
+                <span className="label">平均子会话数：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.subsession_metrics?.avg_subsessions_per_session || 0)}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">子会话成功率：</span>
+                <span className="value">
+                  {formatNumber((metrics.mechanism?.subsession_metrics?.subsession_success_rate || 0) * 100)}%
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="label">子会话平均时长：</span>
+                <span className="value">
+                  {formatNumber(metrics.mechanism?.subsession_metrics?.avg_subsession_duration_s || 0)} s
                 </span>
               </div>
             </div>
@@ -629,8 +680,11 @@ export const AnalysisDashboard = () => {
                         // 过滤掉UAV侧的会话密钥建立和认证成功事件
                         if (item.entity_type === 'UAV' && (item.phase === 'session_key_established' || item.phase === 'success')) continue;
                         
-                        // 确定子会话ID
-                        let subsessionKey = item.subsession_id !== null && item.subsession_id !== undefined ? item.subsession_id : 0;
+                        // 确定子会话ID，确保统一转换为数字类型
+                        let subsessionKey = 0;
+                        if (item.subsession_id !== null && item.subsession_id !== undefined) {
+                          subsessionKey = parseInt(item.subsession_id) || 0;
+                        }
                         
                         // 为每个子会话分组添加事件
                         if (!subsessionGroups[subsessionKey]) {
@@ -640,15 +694,17 @@ export const AnalysisDashboard = () => {
                       }
                       
                       // 渲染分组
-                      const renderSubsessionGroup = (events, subsessionKey) => {
+                        const renderSubsessionGroup = (events, subsessionKey) => {
                         const groupFilteredEvents = [];
                         const groupTimeoutSeen = new Set();
                         const groupM1SentSeen = new Set();
                         const groupM3m4SentSeen = new Set();
+                        const groupAckSeen = new Set();
                         
                         for (const item of events) {
                           // 4. 每个子会话只保留一个超时事件
                           if (item.phase === 'timeout' || item.protocol_step?.includes('RETRY_BUDGET_EXHAUSTED')) {
+                            // 使用转换后的subsessionKey
                             const sessionKey = `${item.uav_id}-${item.zsp_id}-${item.auth_session_id}-${subsessionKey}`;
                             if (groupTimeoutSeen.has(sessionKey)) {
                               continue;
@@ -658,6 +714,7 @@ export const AnalysisDashboard = () => {
                           
                           // 5. 每个子会话过滤掉重复的M1发送事件
                           if (item.phase === 'M1_sent' && item.success === true) {
+                            // 使用转换后的subsessionKey
                             const m1Key = `${item.uav_id}-${item.zsp_id}-${item.auth_session_id}-${subsessionKey}`;
                             if (groupM1SentSeen.has(m1Key)) {
                               continue;
@@ -667,6 +724,7 @@ export const AnalysisDashboard = () => {
                           
                           // 6. 每个子会话过滤掉重复的M3_M4发送事件
                           if (item.phase === 'M3_M4_sent' && item.success === true) {
+                            // 使用转换后的subsessionKey
                             const m3m4Key = `${item.uav_id}-${item.zsp_id}-${item.auth_session_id}-${subsessionKey}`;
                             if (groupM3m4SentSeen.has(m3m4Key)) {
                               continue;
@@ -674,32 +732,46 @@ export const AnalysisDashboard = () => {
                             groupM3m4SentSeen.add(m3m4Key);
                           }
                           
-                          // 7. 确保会话结果的唯一性：如果子会话有成功事件，过滤掉所有超时事件
+                          // 7. 每个子会话过滤掉重复的ACK事件
+                          if (item.phase === 'ack_received' || item.message_type === 'D2Z_ACK') {
+                            // 使用转换后的subsessionKey
+                            const ackKey = `${item.uav_id}-${item.zsp_id}-${item.auth_session_id}-${subsessionKey}`;
+                            if (groupAckSeen.has(ackKey)) {
+                              continue;
+                            }
+                            groupAckSeen.add(ackKey);
+                          }
+                          
+                          // 8. 确保会话结果的唯一性：如果子会话有成功事件，过滤掉所有超时事件
                           if (item.phase === 'timeout' || item.protocol_step?.includes('RETRY_BUDGET_EXHAUSTED')) {
-                            // 只检查当前子会话的事件
-                            const hasSuccessEvent = events.some(e => 
-                              e.uav_id === item.uav_id && 
-                              e.zsp_id === item.zsp_id && 
-                              e.auth_session_id === item.auth_session_id && 
-                              e.phase === 'success' &&
-                              (e.subsession_id === subsessionKey || (e.subsession_id === null || e.subsession_id === undefined))
-                            );
+                            // 只检查当前子会话的事件，使用转换后的subsessionKey进行比较
+                            const hasSuccessEvent = events.some(e => {
+                              // 转换e的subsession_id为数字
+                              const eSubsessionKey = e.subsession_id !== null && e.subsession_id !== undefined ? parseInt(e.subsession_id) || 0 : 0;
+                              return e.uav_id === item.uav_id && 
+                                e.zsp_id === item.zsp_id && 
+                                e.auth_session_id === item.auth_session_id && 
+                                e.phase === 'success' &&
+                                eSubsessionKey === subsessionKey;
+                            });
                             if (hasSuccessEvent) {
                               continue;
                             }
                           }
                           
-                          // 8. 确保会话结果的唯一性：如果子会话有超时事件，过滤掉成功事件（如果超时事件在成功事件之后）
+                          // 9. 确保会话结果的唯一性：如果子会话有超时事件，过滤掉成功事件（如果超时事件在成功事件之后）
                           if (item.phase === 'success') {
-                            // 只检查当前子会话的事件
-                            const hasLaterTimeoutEvent = events.some(e => 
-                              e.uav_id === item.uav_id && 
-                              e.zsp_id === item.zsp_id && 
-                              e.auth_session_id === item.auth_session_id && 
-                              (e.phase === 'timeout' || e.protocol_step?.includes('RETRY_BUDGET_EXHAUSTED')) && 
-                              e.sim_time > item.sim_time &&
-                              (e.subsession_id === subsessionKey || (e.subsession_id === null || e.subsession_id === undefined))
-                            );
+                            // 只检查当前子会话的事件，使用转换后的subsessionKey进行比较
+                            const hasLaterTimeoutEvent = events.some(e => {
+                              // 转换e的subsession_id为数字
+                              const eSubsessionKey = e.subsession_id !== null && e.subsession_id !== undefined ? parseInt(e.subsession_id) || 0 : 0;
+                              return e.uav_id === item.uav_id && 
+                                e.zsp_id === item.zsp_id && 
+                                e.auth_session_id === item.auth_session_id && 
+                                (e.phase === 'timeout' || e.protocol_step?.includes('RETRY_BUDGET_EXHAUSTED')) && 
+                                e.sim_time > item.sim_time &&
+                                eSubsessionKey === subsessionKey;
+                            });
                             if (hasLaterTimeoutEvent) {
                               continue;
                             }

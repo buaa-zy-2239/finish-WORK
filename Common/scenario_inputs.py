@@ -68,9 +68,9 @@ def normalize_link_state_config(conf: dict | None) -> dict:
     burst_model["p_good_to_bad"] = max(0.0, min(1.0, float(burst_model.get("p_good_to_bad", 0.02))))
     burst_model["p_bad_to_good"] = max(0.0, min(1.0, float(burst_model.get("p_bad_to_good", 0.25))))
     burst_model["loss_good"] = max(0.0, min(1.0, float(burst_model.get("loss_good", 0.01))))
-    burst_model["loss_bad"] = max(0.0, min(1.0, float(burst_model.get("loss_bad", 0.8))))
+    burst_model["loss_bad"] = max(0.0, min(1.0, float(burst_model.get("loss_bad", 0.75))))
     cfg["uplink_burst_loss_model"] = burst_model
-
+    # 处理loss_windows
     windows = []
     for idx, item in enumerate(cfg.get("loss_windows", []) or []):
         if not isinstance(item, dict):

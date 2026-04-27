@@ -42,23 +42,32 @@ async def create_simulation_task(task_data: dict) -> dict:
         
         config_file = task_dir / "config.json"
         _protocol = get_protocol_spec(task_data.get("protocol")).name
+        # 获取前端发送的区块链开启选项
+        enable_blockchain = task_data.get("enable_blockchain", False)
+        
+        # 对于RLBA协议，强制开启区块链
+        if _protocol in ["RLBA_UAV", "RLBA_3WAY"]:
+            enable_blockchain = True
+        
         config_data = {
-            "task_id": task_id,
-            "name": task_data.get("name", "Unnamed Task"),
-            "created_at": datetime.now().isoformat(),
-            "duration": task_data.get("duration", 30),
-            "uavs": task_data.get("uavs", []),
-            "zsps": task_data.get("zsps", []),
-            "simulation": {
-                "duration": task_data.get("duration", 30)
-            },
-            "protocol": _protocol,
-            "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
-            "scenario": task_data.get("scenario"),
-            "scenario_profile": task_data.get("scenario_profile"),
-            "security_profile": task_data.get("security_profile") or {},
-            "attack_model": task_data.get("attack_model"),
-        }
+                "task_id": task_id,
+                "name": task_data.get("name", "Unnamed Task"),
+                "created_at": datetime.now().isoformat(),
+                "duration": task_data.get("duration", 30),
+                "uavs": task_data.get("uavs", []),
+                "zsps": task_data.get("zsps", []),
+                "simulation": {
+                    "duration": task_data.get("duration", 30)
+                },
+                "protocol": _protocol,
+                "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
+                "scenario": task_data.get("scenario"),
+                "scenario_profile": task_data.get("scenario_profile"),
+                "security_profile": task_data.get("security_profile") or {},
+                "attack_model": task_data.get("attack_model"),
+                "user_count": task_data.get("user_count", 0),
+                "enable_blockchain": enable_blockchain,
+            }
         
         with open(config_file, 'w') as f:
             json.dump(config_data, f, indent=2)

@@ -281,12 +281,8 @@ class BaseUAV(ns.Application):
         self._safe_execute("SwitchConnection", logic)
 
     def on_connected_to_zsp(self):
-
-        def logic():
-            if self.auth_trigger_config.get("initial_on_connect", True):
-                self._trigger_d2z_auth("D2Z_INITIATED")
-
-        self._safe_execute("on_connected", logic)
+        """连接到ZSP时的回调方法，由具体协议实现覆盖"""
+        pass
 
     def _can_trigger_d2z_auth(self) -> bool:
         if self.current_zsp is None or self.zsp_id is None:
