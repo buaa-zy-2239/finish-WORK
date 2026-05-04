@@ -56,13 +56,6 @@ def normalize_link_state_config(conf: dict | None) -> dict:
         cfg["uplink_loss_rate"] = max(0.0, min(1.0, float(cfg["uplink_loss_rate"])))
     else:
         cfg["uplink_loss_rate"] = 0.0
-    rssi_model = dict(cfg.get("rssi_loss_model") or {})
-    rssi_model["enabled"] = bool(rssi_model.get("enabled", False))
-    rssi_model["rssi_good_dbm"] = float(rssi_model.get("rssi_good_dbm", -65.0))
-    rssi_model["rssi_bad_dbm"] = float(rssi_model.get("rssi_bad_dbm", -90.0))
-    rssi_model["loss_good"] = max(0.0, min(1.0, float(rssi_model.get("loss_good", 0.0))))
-    rssi_model["loss_bad"] = max(0.0, min(1.0, float(rssi_model.get("loss_bad", 0.5))))
-    cfg["rssi_loss_model"] = rssi_model
     burst_model = dict(cfg.get("uplink_burst_loss_model") or {})
     burst_model["enabled"] = bool(burst_model.get("enabled", False))
     burst_model["p_good_to_bad"] = max(0.0, min(1.0, float(burst_model.get("p_good_to_bad", 0.02))))

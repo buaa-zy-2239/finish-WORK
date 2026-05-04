@@ -1,8 +1,5 @@
-# Simulator/simulator_builder_enhanced.py
 """
 增强的仿真构建器 - PMAP / PMAP_ACK（D2Z 下行 ACK 会话冗余）、动态配置与日志。
-
-入口位于仓库根目录，便于 `ns3 run .../UAV/simulator_builder.py`；`_ROOT` 指向本仓库 UAV 根。
 """
 
 import json
@@ -11,8 +8,9 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime
+import copy
 
-_ROOT = Path(__file__).resolve().parent
+_ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -25,7 +23,8 @@ from Common.protocol_registry import get_protocol_spec
 from Common.scenario_inputs import load_waypoints_from_json_file, resolve_config_relative_path
 from Mobility.mobility import MobilityFactory
 from BlockChain.Blockchain import Web3BlockchainAdapter
-import copy
+from Simulator.session_tracker import SessionTracker
+from Simulator.network_config import NetworkConfigurator
 
 
 class SimulationBuilderEnhanced:
@@ -52,7 +51,6 @@ class SimulationBuilderEnhanced:
         self.zsps = []
         self.users = []
 
-        # 初始化区块链（根据配置决定是否开启）
         self.enable_blockchain = self.config.get("enable_blockchain", False)
         self.blockchain = None
         if self.enable_blockchain:
@@ -66,7 +64,6 @@ class SimulationBuilderEnhanced:
         else:
             print("[Blockchain] Disabled")
 
-        # 初始化用户数量
         self.user_count = self.config.get("user_count", 0)
 
         self.stats = {
@@ -79,6 +76,8 @@ class SimulationBuilderEnhanced:
             "successful_authentications": 0,
             "failed_authentications": 0,
         }
+
+        self.session_tracker = None
 
         print(f"[BUILDER] SimulationBuilderEnhanced initialized (protocol={self.protocol})")
 
@@ -108,7 +107,12 @@ class SimulationBuilderEnhanced:
             get_log_manager(log_dir, sim_id)
             print(f"[BUILDER] Log output: dir={log_dir} sim_id={sim_id} protocol={self.protocol}")
 
+            self.session_tracker = SessionTracker(sim_id, log_dir)
+            print(f"[BUILDER] SessionTracker initialized (sim_id={sim_id})")
+
             self._create_nodes()
+            self._setup_mobility()
+            self._install_internet_stack()
             self._setup_network()
             self._setup_zsp()
             self._setup_uav()
@@ -116,6 +120,8 @@ class SimulationBuilderEnhanced:
             self._pre_reg()
 
             duration = self.config.get("simulation", {}).get("duration", 30)
+            if "duration" in self.config:
+                duration = self.config["duration"]
             ns.Simulator.Stop(ns.Seconds(duration))
 
             print(f"[BUILDER] Running simulation for {duration} seconds...")
@@ -127,6 +133,14 @@ class SimulationBuilderEnhanced:
             self.stats["total_zsps"] = len(self.zsps)
             self.stats["total_users"] = len(self.users)
 
+            if self.session_tracker:
+                results = self.session_tracker.export_results()
+                output_path = self.session_tracker.save_results()
+                print(f"[BUILDER] SessionTracker results saved to {output_path}")
+                self.stats["session_tracker_metrics"] = results.get("metrics", {})
+                self.stats["total_sessions"] = len(results.get("sessions", []))
+                self.stats["total_events"] = results.get("event_count", 0)
+
             print("[BUILDER] Simulation completed successfully")
 
             return {
@@ -135,12 +149,12 @@ class SimulationBuilderEnhanced:
                 "uav_count": len(self.uavs),
                 "zsp_count": len(self.zsps),
                 "protocol": self.protocol,
+                "session_tracker_results": self.session_tracker.export_results() if self.session_tracker else None,
             }
 
         except Exception as e:
             print(f"[BUILDER] Simulation failed: {e}")
             import traceback
-
             traceback.print_exc()
 
             self.stats["end_time"] = datetime.now().isoformat()
@@ -153,41 +167,39 @@ class SimulationBuilderEnhanced:
             }
 
     def _create_nodes(self):
-        max_id = 0
-        for u in self.config.get("uavs", []):
-            max_id = max(max_id, u.get("id", 0))
-        for z in self.config.get("zsps", []):
-            max_id = max(max_id, z.get("id", 0))
+        self.nodes = NetworkConfigurator.create_nodes(self.config, self.user_count)
+        print(f"[BUILDER] Created {self.nodes.GetN()} nodes")
+
+    def _setup_mobility(self):
+        uav_count = len(self.config.get("uavs", []))
         
-        # 为用户分配节点ID，从max_id+1开始
-        if self.user_count > 0:
-            total = max_id + 1 + self.user_count
-        else:
-            total = max_id + 1
-            
-        self.nodes = ns.NodeContainer()
-        self.nodes.Create(total)
-        print(f"[BUILDER] Created {total} nodes (UAVs: {len(self.config.get('uavs', []))}, ZSPs: {len(self.config.get('zsps', []))}, Users: {self.user_count})")
+        for idx, uav_conf in enumerate(self.config.get("uavs", [])):
+            node = self.nodes.Get(idx)
+            mobility_conf = dict(uav_conf.get("mobility", {}))
+            if mobility_conf.get("type") == "trace" and mobility_conf.get("trace_file"):
+                trace_path = resolve_config_relative_path(self._config_dir, mobility_conf.get("trace_file"))
+                mobility_conf["waypoints"] = load_waypoints_from_json_file(trace_path)
+            MobilityFactory.install(node, mobility_conf)
+
+        for idx, zsp_conf in enumerate(self.config.get("zsps", [])):
+            node = self.nodes.Get(uav_count + idx)
+            MobilityFactory.install_constant(node, zsp_conf.get("position", [0, 0, 100]))
+
+        print(f"[BUILDER] Mobility models installed")
+
+    def _install_internet_stack(self):
+        NetworkConfigurator.install_internet_stack(self.nodes)
+        print(f"[BUILDER] Internet stack installed")
 
     def _setup_network(self):
-        stack = ns.InternetStackHelper()
-        stack.Install(self.nodes)
-
         address = ns.Ipv4AddressHelper()
-        address.SetBase(ns.Ipv4Address("10.1.1.0"), ns.Ipv4Mask("255.255.255.0"))
-
-        channel = ns.CsmaHelper()
-        channel_config = self.config.get("channel", {})
-        channel.SetChannelAttribute("DataRate", ns.StringValue(channel_config.get("datarate", "100Mbps")))
-        channel.SetChannelAttribute("Delay", ns.TimeValue(ns.NanoSeconds(6560)))
-
-        devices = channel.Install(self.nodes)
-        self.interfaces = address.Assign(devices)
-        print("[BUILDER] Network stack installed")
+        self.interfaces = NetworkConfigurator.setup_network(self.nodes, self.config, address)
+        print(f"[BUILDER] Network devices installed")
 
     def _setup_zsp(self):
-        for zsp_conf in self.config.get("zsps", []):
-            node = self.nodes.Get(zsp_conf["id"])
+        uav_count = len(self.config.get("uavs", []))
+        for idx, zsp_conf in enumerate(self.config.get("zsps", [])):
+            node = self.nodes.Get(uav_count + idx)
             zid = int(zsp_conf["id"])
 
             zsp = self.protocol_spec.zsp_class(
@@ -198,23 +210,18 @@ class SimulationBuilderEnhanced:
                 attack_model=self.attack_model,
                 d2z_ack_mode=self.d2z_ack_mode,
                 compute_profile=zsp_conf.get("compute_profile"),
+                session_tracker=self.session_tracker,
             )
 
-            MobilityFactory.install_constant(node, zsp_conf.get("position", [0, 0, 100]))
             self.zsps.append(zsp)
             node.AddApplication(zsp)
             zsp.SetStartTime(ns.Seconds(0))
             print(f"[BUILDER] ZSP-{zid} created ({self.protocol})")
 
     def _setup_uav(self):
-        for uav_conf in self.config.get("uavs", []):
-            node = self.nodes.Get(uav_conf["id"])
+        for idx, uav_conf in enumerate(self.config.get("uavs", [])):
+            node = self.nodes.Get(idx)
             uid = int(uav_conf["id"])
-            mobility_conf = dict(uav_conf.get("mobility", {}))
-            if mobility_conf.get("type") == "trace" and mobility_conf.get("trace_file"):
-                trace_path = resolve_config_relative_path(self._config_dir, mobility_conf.get("trace_file"))
-                mobility_conf["waypoints"] = load_waypoints_from_json_file(trace_path)
-            MobilityFactory.install(node, mobility_conf)
 
             uav = self.protocol_spec.uav_class(
                 node,
@@ -223,6 +230,7 @@ class SimulationBuilderEnhanced:
                 d2z_ack_mode=self.d2z_ack_mode,
                 auth_trigger_config=uav_conf.get("auth_trigger"),
                 link_state_config=uav_conf.get("link_state"),
+                session_tracker=self.session_tracker,
             )
 
             self.uavs.append(uav)
@@ -232,55 +240,36 @@ class SimulationBuilderEnhanced:
 
     def _setup_user(self):
         if self.user_count > 0 and self.protocol == 'RLBA_3WAY':
-            # 限制用户数量，避免内存使用过度
-            max_users = 5
-            if self.user_count > max_users:
-                print(f"[BUILDER] User count {self.user_count} exceeds maximum {max_users}, setting to {max_users}")
-                self.user_count = max_users
-            
-            # 为三方认证协议创建用户
-            try:
-                from Entity.User.RLBAUser import RLBAUser
-                
-                # 计算用户节点ID的起始值
-                max_id = 0
-                for u in self.config.get("uavs", []):
-                    max_id = max(max_id, u.get("id", 0))
-                for z in self.config.get("zsps", []):
-                    max_id = max(max_id, z.get("id", 0))
-                user_node_start_id = max_id + 1
-                
-                for i in range(self.user_count):
-                    user_id = f"user_{i}"
-                    gss_id = self.zsps[0].id if self.zsps else ""
-                    # 生成用户密钥
-                    import hashlib
-                    secret = hashlib.sha256(f"RLBA_SECRET:{user_id}".encode()).hexdigest()
-                    
-                    # 分配节点给用户
-                    user_node_id = user_node_start_id + i
-                    node = self.nodes.Get(user_node_id)
-                    
-                    # 创建用户实例
-                    user = RLBAUser(node, user_id, gss_id, secret)
-                    self.users.append(user)
-                    
-                    # 为用户设置位置（固定位置）
-                    position = [100 + i * 50, 100, 1.0]  # 地面用户，高度1米
-                    MobilityFactory.install_constant(node, position)
-                    
-                    # 安装用户应用
-                    node.AddApplication(user)
-                    user.SetStartTime(ns.Seconds(0))
-                    
-                    # 模拟连接到ZSP
-                    user.on_connected_to_zsp(1)  # 假设连接到ZSP 1
-                    
-                    print(f"[BUILDER] User-{i} created with node ID {user_node_id} ({self.protocol})")
-            except Exception as e:
-                print(f"[BUILDER] Error creating users: {e}")
-                import traceback
-                traceback.print_exc()
+            from Entity.User.RLBAUser import RLBAUser
+
+            max_id = 0
+            for u in self.config.get("uavs", []):
+                max_id = max(max_id, u.get("id", 0))
+            for z in self.config.get("zsps", []):
+                max_id = max(max_id, z.get("id", 0))
+            user_node_start_id = max_id + 1
+
+            for i in range(self.user_count):
+                user_id = f"user_{i}"
+                gss_id = self.zsps[0].id if self.zsps else ""
+                import hashlib
+                secret = hashlib.sha256(f"RLBA_SECRET:{user_id}".encode()).hexdigest()
+
+                user_node_id = user_node_start_id + i
+                node = self.nodes.Get(user_node_id)
+
+                user = RLBAUser(node, user_id, gss_id, secret)
+                self.users.append(user)
+
+                position = [100 + i * 50, 100, 1.0]
+                MobilityFactory.install_constant(node, position)
+
+                node.AddApplication(user)
+                user.SetStartTime(ns.Seconds(0))
+
+                user.on_connected_to_zsp(1)
+
+                print(f"[BUILDER] User-{i} created with node ID {user_node_id} ({self.protocol})")
 
     def _pre_reg(self):
         for uav in self.uavs:
@@ -288,8 +277,7 @@ class SimulationBuilderEnhanced:
             for zsp in self.zsps:
                 zsp.RegisterUAV(reg["pid"], copy.deepcopy(reg))
         print(f"[BUILDER] Pre-registered {len(self.uavs)} UAVs ({self.protocol})")
-        
-        # 部署智能合约（如果启用了区块链）
+
         if self.enable_blockchain and self.blockchain:
             if hasattr(self.blockchain, 'deploy_contract'):
                 self.blockchain.deploy_contract()

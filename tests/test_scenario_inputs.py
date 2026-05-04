@@ -61,25 +61,6 @@ def test_normalize_link_state_config_clamps_uplink_loss_rate():
     assert cfg["uplink_loss_rate"] == 1.0
 
 
-def test_normalize_link_state_config_normalizes_rssi_loss_model():
-    cfg = normalize_link_state_config(
-        {
-            "rssi_loss_model": {
-                "enabled": True,
-                "rssi_good_dbm": -60,
-                "rssi_bad_dbm": -95,
-                "loss_good": -0.2,
-                "loss_bad": 1.2,
-            }
-        }
-    )
-    assert cfg["rssi_loss_model"]["enabled"] is True
-    assert cfg["rssi_loss_model"]["rssi_good_dbm"] == -60.0
-    assert cfg["rssi_loss_model"]["rssi_bad_dbm"] == -95.0
-    assert cfg["rssi_loss_model"]["loss_good"] == 0.0
-    assert cfg["rssi_loss_model"]["loss_bad"] == 1.0
-
-
 def test_normalize_link_state_config_normalizes_uplink_burst_model():
     cfg = normalize_link_state_config(
         {

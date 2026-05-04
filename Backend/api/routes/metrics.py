@@ -1,4 +1,3 @@
-# Backend/api/routes/metrics.py
 """
 指标查询路由 - 提供D2Z协议性能指标
 """
@@ -7,22 +6,21 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from datetime import datetime
 
+from di import get_service
+
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
-# 全局变量，由app.py设置
-log_service = None
 
-
-def set_log_service(service):
-    """设置日志服务"""
-    global log_service
-    log_service = service
+async def get_log_service():
+    """获取日志服务"""
+    return get_service('log_service')
 
 
 @router.get("/summary")
 async def get_metrics_summary(task_id: Optional[str] = Query(None)) -> dict:
     """获取D2Z协议性能指标摘要"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         
         return {
@@ -42,6 +40,7 @@ async def get_metrics_summary(task_id: Optional[str] = Query(None)) -> dict:
 async def get_authentication_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取认证相关指标"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         auth_metrics = metrics.get("authentication", {})
         
@@ -68,6 +67,7 @@ async def get_authentication_metrics(task_id: Optional[str] = Query(None)) -> di
 async def get_messaging_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取消息相关指标"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         msg_metrics = metrics.get("messaging", {})
         
@@ -95,6 +95,7 @@ async def get_messaging_metrics(task_id: Optional[str] = Query(None)) -> dict:
 async def get_timing_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取时间相关指标"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         timing_metrics = metrics.get("timing", {})
         
@@ -122,6 +123,7 @@ async def get_timing_metrics(task_id: Optional[str] = Query(None)) -> dict:
 async def get_error_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取错误相关指标"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         error_metrics = metrics.get("errors", {})
         
@@ -147,6 +149,7 @@ async def get_error_metrics(task_id: Optional[str] = Query(None)) -> dict:
 async def get_performance_metrics(task_id: Optional[str] = Query(None)) -> dict:
     """获取综合性能指标"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         
         auth = metrics.get("authentication", {})
@@ -187,6 +190,7 @@ async def get_comparison_metrics(
 ) -> dict:
     """获取指标对比信息"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         
         return {
@@ -209,6 +213,7 @@ async def get_comparison_metrics(
 async def get_metrics_status(task_id: Optional[str] = Query(None)) -> dict:
     """获取指标系统状态"""
     try:
+        log_service = get_service('log_service')
         status = log_service.get_log_status(task_id=task_id)
         
         return {
@@ -237,6 +242,7 @@ async def export_all_metrics(
 ) -> dict:
     """导出所有指标数据"""
     try:
+        log_service = get_service('log_service')
         metrics = log_service.get_metrics(task_id=task_id)
         
         return {

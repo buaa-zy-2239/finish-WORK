@@ -124,3 +124,38 @@ async def export_as_json(task_id: Optional[str] = Query(None)) -> Dict:
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/timeline-diagram/{session_id}")
+async def get_timeline_diagram(
+    session_id: str,
+    task_id: Optional[str] = Query(None),
+) -> Dict:
+    """获取会话的时序图数据"""
+    try:
+        diagram = log_service.get_timeline_diagram(session_id, task_id=task_id)
+        if diagram is None:
+            raise HTTPException(status_code=404, detail=f"Timeline diagram not found for session {session_id}")
+        return {
+            "success": True,
+            "session_id": session_id,
+            "diagram": diagram
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/timeline-diagrams")
+async def get_all_timeline_diagrams(task_id: Optional[str] = Query(None)) -> Dict:
+    """获取所有会话的时序图数据"""
+    try:
+        diagrams = log_service.get_all_timeline_diagrams(task_id=task_id)
+        return {
+            "success": True,
+            "total": len(diagrams),
+            "diagrams": diagrams
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

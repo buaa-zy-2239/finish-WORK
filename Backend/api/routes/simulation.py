@@ -1,26 +1,26 @@
-# Backend/api/routes/simulation.py
 """
 仿真管理路由 - 处理仿真任务的创建、运行和管理
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from datetime import datetime
 import json
 import os
+import subprocess
 import uuid
 from pathlib import Path
-from typing import Dict, Any
-import asyncio
-import subprocess
-import sys
 
 from config import config
+from di import get_service
+from exceptions import TaskNotFoundError, ConfigFileNotFoundError, ProtocolNotSupportedError
 from Common.protocol_registry import get_protocol_spec, list_supported_protocols
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
-# 存储任务信息的字典
-tasks_db: Dict[str, Dict[str, Any]] = {}
+
+async def get_simulation_service():
+    """获取仿真服务"""
+    return get_service('simulation_service')
 
 
 @router.post("/create")
@@ -35,44 +35,47 @@ async def create_simulation_task(task_data: dict) -> dict:
         dict: 创建的任务信息
     """
     try:
-        # 秒级时间戳在快速连点/自动化下会碰撞，追加短 uuid 保证目录唯一
         task_id = f"sim_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         task_dir = Path(config.SIMULATION_TASKS_DIR) / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
         
         config_file = task_dir / "config.json"
-        _protocol = get_protocol_spec(task_data.get("protocol")).name
-        # 获取前端发送的区块链开启选项
-        enable_blockchain = task_data.get("enable_blockchain", False)
         
-        # 对于RLBA协议，强制开启区块链
-        if _protocol in ["RLBA_UAV", "RLBA_3WAY"]:
+        _protocol = task_data.get("protocol")
+        if not _protocol:
+            raise ProtocolNotSupportedError("未指定协议")
+        
+        protocol_spec = get_protocol_spec(_protocol)
+        if not protocol_spec:
+            raise ProtocolNotSupportedError(_protocol)
+        
+        enable_blockchain = task_data.get("enable_blockchain", False)
+        if protocol_spec.name in ["RLBA_UAV", "RLBA_3WAY"]:
             enable_blockchain = True
         
         config_data = {
-                "task_id": task_id,
-                "name": task_data.get("name", "Unnamed Task"),
-                "created_at": datetime.now().isoformat(),
-                "duration": task_data.get("duration", 30),
-                "uavs": task_data.get("uavs", []),
-                "zsps": task_data.get("zsps", []),
-                "simulation": {
-                    "duration": task_data.get("duration", 30)
-                },
-                "protocol": _protocol,
-                "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
-                "scenario": task_data.get("scenario"),
-                "scenario_profile": task_data.get("scenario_profile"),
-                "security_profile": task_data.get("security_profile") or {},
-                "attack_model": task_data.get("attack_model"),
-                "user_count": task_data.get("user_count", 0),
-                "enable_blockchain": enable_blockchain,
-            }
+            "task_id": task_id,
+            "name": task_data.get("name", "Unnamed Task"),
+            "created_at": datetime.now().isoformat(),
+            "duration": task_data.get("duration", 30),
+            "uavs": task_data.get("uavs", []),
+            "zsps": task_data.get("zsps", []),
+            "simulation": {
+                "duration": task_data.get("duration", 30)
+            },
+            "protocol": protocol_spec.name,
+            "channel": task_data.get("channel", {"type": "CSMA", "datarate": "100Mbps"}),
+            "scenario": task_data.get("scenario"),
+            "scenario_profile": task_data.get("scenario_profile"),
+            "security_profile": task_data.get("security_profile") or {},
+            "attack_model": task_data.get("attack_model"),
+            "user_count": task_data.get("user_count", 0),
+            "enable_blockchain": enable_blockchain,
+        }
         
         with open(config_file, 'w') as f:
             json.dump(config_data, f, indent=2)
         
-        # 存储任务元数据
         task_metadata = {
             "task_id": task_id,
             "name": config_data.get("name", "Unnamed Task"),
@@ -83,10 +86,10 @@ async def create_simulation_task(task_data: dict) -> dict:
             "progress": 0
         }
         
-        tasks_db[task_id] = task_metadata
+        simulation_service = get_service('simulation_service')
+        simulation_service.register_task(task_id, task_metadata)
         
         print(f"[SIMULATION] Task {task_id} created successfully")
-        print(f"[SIMULATION] Config file: {config_file}")
         
         return {
             "success": True,
@@ -95,23 +98,30 @@ async def create_simulation_task(task_data: dict) -> dict:
             "message": "仿真任务创建成功"
         }
     
+    except ProtocolNotSupportedError as e:
+        raise HTTPException(status_code=400, detail=e.message)
     except Exception as e:
         print(f"[SIMULATION] Failed to create task: {str(e)}")
         raise HTTPException(status_code=400, detail=f"创建仿真任务失败: {str(e)}")
 
 
 @router.post("/run/{task_id}")
-async def run_simulation(task_id: str, background_tasks: BackgroundTasks) -> dict:
+async def run_simulation(
+    task_id: str, 
+    background_tasks: BackgroundTasks
+) -> dict:
     """运行指定仿真任务"""
     try:
-        if task_id not in tasks_db:
-            raise HTTPException(status_code=404, detail="仿真任务不存在")
+        simulation_service = get_service('simulation_service')
         
-        task = tasks_db[task_id]
+        try:
+            task = simulation_service.get_task(task_id)
+        except TaskNotFoundError as e:
+            raise HTTPException(status_code=404, detail=e.message)
+        
         config_file = task.get("config_file")
-        
         if not config_file or not os.path.exists(config_file):
-            raise HTTPException(status_code=404, detail="配置文件不存在")
+            raise ConfigFileNotFoundError(config_file or "unknown")
         
         task["status"] = "running"
         task["started_at"] = datetime.now().isoformat()
@@ -119,7 +129,6 @@ async def run_simulation(task_id: str, background_tasks: BackgroundTasks) -> dic
         
         print(f"[SIMULATION] Starting task {task_id}...")
         
-        # 在后台执行仿真
         background_tasks.add_task(_run_simulation_background, task_id, config_file)
         
         return {
@@ -138,10 +147,12 @@ async def run_simulation(task_id: str, background_tasks: BackgroundTasks) -> dic
 async def get_simulation_status(task_id: str) -> dict:
     """获取仿真任务状态"""
     try:
-        if task_id not in tasks_db:
-            raise HTTPException(status_code=404, detail="仿真任务不存在")
+        simulation_service = get_service('simulation_service')
         
-        task = tasks_db[task_id]
+        try:
+            task = simulation_service.get_task(task_id)
+        except TaskNotFoundError as e:
+            raise HTTPException(status_code=404, detail=e.message)
         
         return {
             "success": True,
@@ -171,7 +182,9 @@ async def list_protocols() -> dict:
 async def list_simulation_tasks() -> dict:
     """获取所有仿真任务列表"""
     try:
-        tasks = list(tasks_db.values())
+        simulation_service = get_service('simulation_service')
+        tasks = simulation_service.list_tasks()
+        
         return {
             "success": True,
             "total": len(tasks),
@@ -185,14 +198,16 @@ async def list_simulation_tasks() -> dict:
 async def get_simulation_config(task_id: str) -> dict:
     """获取仿真任务配置"""
     try:
-        if task_id not in tasks_db:
-            raise HTTPException(status_code=404, detail="仿真任务不存在")
+        simulation_service = get_service('simulation_service')
         
-        task = tasks_db[task_id]
+        try:
+            task = simulation_service.get_task(task_id)
+        except TaskNotFoundError as e:
+            raise HTTPException(status_code=404, detail=e.message)
+        
         config_file = task.get("config_file")
-        
         if not config_file or not os.path.exists(config_file):
-            raise HTTPException(status_code=404, detail="配置文件不存在")
+            raise ConfigFileNotFoundError(config_file or "unknown")
         
         with open(config_file, 'r') as f:
             config_data = json.load(f)
@@ -211,17 +226,15 @@ async def get_simulation_config(task_id: str) -> dict:
 async def _run_simulation_background(task_id: str, config_file: str):
     """
     后台运行仿真 - 使用ns3命令运行仿真器
-    
-    Args:
-        task_id: 仿真任务ID
-        config_file: 配置文件路径
     """
     try:
-        if task_id not in tasks_db:
+        simulation_service = get_service('simulation_service')
+        
+        try:
+            task = simulation_service.get_task(task_id)
+        except TaskNotFoundError:
             print(f"[SIMULATION] Task {task_id} not found")
             return
-        
-        task = tasks_db[task_id]
         
         print(f"\n[SIMULATION] ========== Starting simulation {task_id} ==========")
         print(f"[SIMULATION] Config file: {config_file}")
@@ -229,10 +242,8 @@ async def _run_simulation_background(task_id: str, config_file: str):
         task_dir = Path(task.get("task_dir", ""))
         log_subdir = task_dir / "logs"
         log_subdir.mkdir(parents=True, exist_ok=True)
-        print(f"[SIMULATION] Log directory: {log_subdir}")
         
         try:
-            # 获取ns3命令
             ns3_cmd = config.NS3_COMMAND
             simulator_script = config.SIMULATOR_SCRIPT
             
@@ -242,32 +253,25 @@ async def _run_simulation_background(task_id: str, config_file: str):
             if not os.path.exists(simulator_script):
                 raise FileNotFoundError(f"Simulator script not found: {simulator_script}")
             
-            print(f"[SIMULATION] Using ns3: {ns3_cmd}")
-            print(f"[SIMULATION] Using simulator: {simulator_script}")
-            print(f"[SIMULATION] Config file: {config_file}")
-            
-            # 构建命令
             cmd = [ns3_cmd, "run", simulator_script]
             
             print(f"[SIMULATION] Running: {' '.join(cmd)}")
             
-            # 设置环境变量 - 参考 experiments 中的实现
             env = os.environ.copy()
             env["CONFIG_FILE"] = str(Path(config_file).resolve())
             env["SIM_LOG_DIR"] = str(log_subdir.resolve())
             env["SIM_ID"] = str(abs(hash(task_id)) % (10**9))
-            env.setdefault("MALLOC_ARENA_MAX", "2")  # 防止内存分配问题
+            env.setdefault("MALLOC_ARENA_MAX", "2")
             
             task["progress"] = 5
             
-            # 执行仿真 - 使用 experiments 中的 cwd 设置
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
-                cwd=str(Path(__file__).resolve().parents[2])  # 项目根目录
+                cwd=str(Path(__file__).resolve().parents[2])
             )
             
             print(f"[SIMULATION] ===== Simulation Output Start =====")
@@ -278,7 +282,6 @@ async def _run_simulation_background(task_id: str, config_file: str):
             
             print(f"[SIMULATION] ===== Simulation Output End =====")
             
-            # 等待完成
             process.wait(timeout=600)
             
             if process.returncode == 0:
@@ -287,13 +290,8 @@ async def _run_simulation_background(task_id: str, config_file: str):
                 task["completed_at"] = datetime.now().isoformat()
                 task["progress"] = 100
                 
-                # 重新加载日志
-                try:
-                    from services.log_service import log_service
-                    log_service.load_logs(force_reload=True, task_id=task_id)
-                    print(f"[SIMULATION] ✓ Logs reloaded: {len(log_service.events)} events found")
-                except Exception as e:
-                    print(f"[SIMULATION] ⚠ Warning: Failed to reload logs: {e}")
+                log_service = get_service('log_service')
+                log_service.load_logs(force_reload=True, task_id=task_id)
                 
                 print(f"[SIMULATION] ========== Task {task_id} completed ==========\n")
             else:
@@ -301,7 +299,6 @@ async def _run_simulation_background(task_id: str, config_file: str):
                 task["status"] = "failed"
                 task["error"] = f"Simulator exited with code {process.returncode}"
                 task["completed_at"] = datetime.now().isoformat()
-                print(f"[SIMULATION] ========== Task {task_id} failed ==========\n")
         
         except subprocess.TimeoutExpired:
             process.kill()
@@ -309,7 +306,6 @@ async def _run_simulation_background(task_id: str, config_file: str):
             task["status"] = "failed"
             task["error"] = "Timeout"
             task["completed_at"] = datetime.now().isoformat()
-            print(f"[SIMULATION] ========== Task {task_id} timeout ==========\n")
         
         except Exception as e:
             print(f"[SIMULATION] ✗ Error: {e}")
@@ -318,15 +314,8 @@ async def _run_simulation_background(task_id: str, config_file: str):
             task["completed_at"] = datetime.now().isoformat()
             import traceback
             traceback.print_exc()
-            print(f"[SIMULATION] ========== Task {task_id} failed ==========\n")
     
     except Exception as e:
-        task = tasks_db.get(task_id)
-        if task:
-            task["status"] = "failed"
-            task["error"] = str(e)
-            task["completed_at"] = datetime.now().isoformat()
-        
         print(f"[SIMULATION] ✗ Unexpected error: {e}")
         import traceback
         traceback.print_exc()

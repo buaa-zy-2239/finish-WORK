@@ -1,452 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import './SimulationManager.css';
 import ProtocolConfig from './ProtocolConfig';
-
-const API_BASE = 'http://localhost:8001/api/v1';
-
-const PROTOCOL_OPTIONS = [
-  { value: 'PMAP', label: 'PMAP（经典：发完 M3/M4 即本地换 PID）' },
-  { value: 'PMAP_ACK', label: 'PMAP_ACK（会话冗余：收 ZSP 的 D2Z_ACK 后才换 PID）' },
-  { value: 'STATIC_BASELINE', label: 'STATIC_BASELINE（静态/预共享身份基线协议）' },
-  { value: 'RLBA_UAV', label: 'RLBA_UAV（三方 AKA 的平台映射版对照协议）' },
-  { value: 'RLBA_3WAY', label: 'RLBA_3WAY（完整三方 AKA 协议）' },
-];
-
-const USER_COUNT_OPTIONS = [1, 5, 10, 20];
-
-const BASELINE_SCENARIO_IDS = new Set([
-  'baseline_d2z',
-  'pmap_ack_baseline',
-  'pmap_ack_attack_drop_ack',
-]);
-
-const SWARM_SIZE_OPTIONS = [10, 30, 50, 100];
-
-const DENSITY_OPTIONS = [
-  { value: 1, label: 'low (1 UAV/km²)' },
-  { value: 10, label: 'medium (10 UAV/km²)' },
-  { value: 50, label: 'high (50 UAV/km²)' }
-];
-
-const GM3D_STRESS_OPTIONS = [
-  { value: 'conservative', label: '保守 (3±2 m/s)' },
-  { value: 'nominal', label: '标准 (5±5 m/s)' },
-  { value: 'aggressive', label: '激进 (12±7 m/s)' }
-];
-
-
-
-const createMobilityStressScenario = (size, density, stressLevel) => {
-  // GM3D stress parameters - 参考 experiments 中的实现
-  const stressParams = {
-    conservative: { alpha: 0.88, mean_speed_mps: 3.0, speed_std_mps: 2.0, altitude_std_m: 20.0 },
-    nominal: { alpha: 0.7, mean_speed_mps: 5.0, speed_std_mps: 5.0, altitude_std_m: 20.0 },
-    aggressive: { alpha: 0.45, mean_speed_mps: 12.0, speed_std_mps: 7.0, altitude_std_m: 28.0 }
-  };
-  
-  const params = stressParams[stressLevel] || stressParams.nominal;
-  
-  // 计算区域大小 - 参考 experiments 中的密度计算
-  let area_side_m = 1000.0; // 默认1km
-  if (density > 0) {
-    const area_km2 = size / density;
-    area_side_m = Math.sqrt(area_km2) * 1000; // km -> m
-  }
-  
-  // 生成UAV配置
-  const uavs = Array.from({ length: size }, (_, idx) => {
-    // 生成随机初始位置（在ZSP附近，确保能建立通信）
-    const seed = 20260417 + idx;
-    const random = new Math.seedrandom(seed);
-    const initial_distance = random() * 100 + 50; // 水平距离50-150m
-    const initial_angle = random() * Math.PI * 2; // 随机方向
-    const initial_x = initial_distance * Math.cos(initial_angle);
-    const initial_y = initial_distance * Math.sin(initial_angle);
-    const initial_z = 80.0 + (random() * 20 - 10); // 高度70-90m
-    
-    return {
-      id: idx,
-      mobility: {
-        type: 'gauss_markov_3d',
-        seed: seed,
-        alpha: params.alpha,
-        mean_speed_mps: params.mean_speed_mps,
-        speed_std_mps: params.speed_std_mps,
-        mean_altitude_m: 80.0,
-        altitude_std_m: params.altitude_std_m,
-        // 关键：区域边界参数（运行时GM3D必需）
-        area_size_x: 600.0, // 600m x 600m 移动区域
-        area_size_y: 600.0,
-        min_altitude_m: 30.0,
-        max_altitude_m: 200.0,
-        // 初始位置和速度
-        initial_position: [Math.round(initial_x * 100) / 100, Math.round(initial_y * 100) / 100, Math.round(initial_z * 100) / 100],
-        initial_velocity: [
-          Math.round((random() * 2 - 1) * params.mean_speed_mps * 100) / 100,
-          Math.round((random() * 2 - 1) * params.mean_speed_mps * 100) / 100,
-          Math.round((random() * 2 - 1) * 2.0 * 100) / 100
-        ],
-        position_update_interval_s: 0.1, // 10Hz更新（顶会标准）
-        // 集群行为参数
-        cluster_behavior: {
-          enabled: size > 10,
-          cluster_id: Math.floor(idx / Math.max(1, Math.floor(size / 5))),
-          cohesion_weight: 0.3,
-          separation_weight: 0.5,
-          alignment_weight: 0.2,
-        },
-      },
-      auth_trigger: {
-        initial_on_connect: false,
-        time_offsets_s: [5, 20, 35, 50],
-        allow_reauth: true
-      },
-      link_state: {
-        comm_range_m: 800, // 增加通信范围，适应更大的移动区域
-        zsp_handover: {
-          enabled: size > 25, // 多ZSP时启用切换
-          rssi_threshold_dbm: -85, // 切换阈值：低于-85dBm触发切换评估
-          hysteresis_db: 5, // 滞后余量，避免乒乓切换
-          min_dwell_time_s: 2.0, // 最小停留时间，避免频繁切换
-          handover_delay_s: 0.5, // 切换执行延迟
-          reauth_after_handover: true, // 切换后重新认证
-        },
-        rssi_loss_model: {
-          enabled: true,
-          rssi_good_dbm: -65.0,
-          rssi_bad_dbm: -90.0,
-          loss_good: 0.0,
-          loss_bad: 0.5,
-        },
-        uplink_burst_loss_model: {
-          enabled: true,
-          p_good_to_bad: 0.02,
-          p_bad_to_good: 0.25,
-          loss_good: 0.01,
-          loss_bad: 0.75,
-        },
-      }
-    };
-  });
-
-  // 计算ZSP部署（参考 experiments 中的实现）
-  let zsps = [];
-  if (size > 25) {
-    // 多ZSP部署：每25个UAV一个ZSP（网格布局）
-    const n_zsps = Math.max(1, Math.ceil(size / 25));
-    const grid_size = Math.ceil(Math.sqrt(n_zsps));
-    const spacing_m = area_side_m / (grid_size + 1);
-    
-    for (let i = 0; i < n_zsps; i++) {
-      const row = Math.floor(i / grid_size);
-      const col = i % grid_size;
-      const x = (col + 1) * spacing_m - area_side_m / 2;
-      const y = (row + 1) * spacing_m - area_side_m / 2;
-      zsps.push({ 
-        id: size + 1 + i, 
-        position: [Math.round(x * 10) / 10, Math.round(y * 10) / 10, 100] 
-      });
-    }
-  } else {
-    // 单ZSP部署
-    zsps = [{ id: size + 1, position: [0, 0, 100] }];
-  }
-
-  // 计算仿真时长
-  let base_duration = 65.0;
-  if (size > 30) {
-    base_duration = 95.0;
-  }
-
-  return {
-    id: 'mobility_stress_test',
-    label: `机动应力测试 (${stressLevel})`,
-    description: `测试 ${stressLevel} 机动性档位下的认证协议性能，网络规模 ${size} UAV，密度 ${density} UAV/km²`,
-    duration: base_duration,
-    uavs,
-    zsps,
-    security_profile: { 
-      adversary: 'none',
-      attack_model: {
-        downlink_loss_rate: 0.0,
-        d2z_ack_timeout_s: 1.5,
-        max_d2z_attempts: 2,
-        desync_template: '',
-        desync_experiment_enabled: false,
-        desync_multi_round: false,
-        desync_boundary_recovery: false,
-        desync_attack_every_round: false,
-        desync_attack_min_completed_sessions: 0,
-        desync_attack_max_completed_sessions: null,
-        retry_d2z_after_intercept_s: 2.0,
-        downlink_burst_loss_model: {
-          enabled: true,
-          p_good_to_bad: 0.02,
-          p_bad_to_good: 0.25,
-          loss_good: 0.01,
-          loss_bad: 0.75,
-        },
-      },
-    },
-    defaultProtocol: 'PMAP_ACK',
-    supportsSwarmSize: true,
-    supportsDensity: true,
-    supportsGM3DStress: true,
-    stageTag: '机动应力实验',
-    scenarioNotes: [
-      'Gauss-Markov 3D 移动模型',
-      `网络规模：${size} UAV`,
-      `密度：${density} UAV/km²`,
-      `机动性档位：${stressLevel}`,
-      `ZSP数量：${zsps.length}`,
-      '用于主实验B子实验C：机动性敏感性'
-    ],
-    triggerSummary: '时间触发认证 + 自动重认证',
-    scenarioProfile: {
-      experiment_track: 'main_exp_b',
-      sub_experiment: 'mobility_sensitivity',
-      swarm_size: size,
-      density: density,
-      gm3d_stress: stressLevel,
-      zsp_count: zsps.length,
-      topology_dynamics: {
-        expected_link_lifetime_s: estimateLinkLifetime('gauss_markov_3d', size, density),
-        expected_handover_rate_per_min: zsps.length > 1 ? estimateHandoverRate(zsps.length, size, density) : 0,
-        topology_change_classification: classifyTopologyDynamicity('gauss_markov_3d', size, density),
-      },
-    }
-  };
-};
-
-// 估算链路持续时间（基于移动模型和密度）
-// 参考: "Topology Dynamics in UAV Networks" IEEE TMC 2023
-function estimateLinkLifetime(motionMode, nUavs, density) {
-  const baseLifetime = 30.0; // 基础链路持续时间（秒）
-
-  // 移动模型影响
-  const mobilityFactor = {
-    'trace_dataset': 1.0,      // 轨迹数据：中等动态性
-    'task_random': 0.7,         // 任务驱动：较高动态性
-    'gauss_markov_3d': 0.5,     // GM3D：高动态性（连续速度变化）
-  }[motionMode] || 0.8;
-
-  // 密度影响：密度越高，UAV越近，链路越稳定
-  const densityFactor = density > 0 ? Math.min(2.0, Math.max(0.5, 10.0 / density)) : 1.0;
-
-  // 规模影响：规模越大，相对移动机会越多
-  const scaleFactor = 1.0 / (1.0 + (nUavs / 200));
-
-  return Math.round(baseLifetime * mobilityFactor * densityFactor * scaleFactor * 10) / 10;
-}
-
-// 估算ZSP切换率（次/分钟/UAV）
-// 基于覆盖重叠区域和移动速度估算
-function estimateHandoverRate(nZsps, nUavs, density) {
-  if (nZsps <= 1) {
-    return 0.0;
-  }
-
-  // 每个ZSP覆盖的UAV数量
-  const uavsPerZsp = nUavs / nZsps;
-
-  // 密度影响区域大小
-  let coverageRadiusM = 1000; // 默认1km覆盖
-  if (density > 0) {
-    const areaPerZspKm2 = uavsPerZsp / density;
-    coverageRadiusM = Math.sqrt(areaPerZspKm2) * 500; // 假设六边形覆盖
-  }
-
-  // 平均移动速度15m/s，穿越覆盖边缘的频率
-  const avgSpeedMps = 15.0;
-  const boundaryWidthM = 100; // 切换决策边界宽度
-
-  // 估算穿越边界的频率
-  const crossingTimeS = (coverageRadiusM * 2) / avgSpeedMps;
-  const handoverProb = boundaryWidthM / (coverageRadiusM * 2);
-
-  // 每分钟切换率
-  const handoverPerMin = (60.0 / crossingTimeS) * handoverProb;
-
-  return Math.round(handoverPerMin * 100) / 100;
-}
-
-// 根据移动模型和网络参数分类拓扑动态性级别
-// 参考: FANET mobility classification (ACM MobiHoc 2024)
-function classifyTopologyDynamicity(motionMode, nUavs, density) {
-  // 计算预期链路变化率
-  const linkLifetime = estimateLinkLifetime(motionMode, nUavs, density);
-  const linkChangeRate = 1.0 / linkLifetime; // 每秒链路变化率
-
-  // 归一化到每个UAV
-  const normalizedRate = linkChangeRate / Math.max(1, nUavs / 10);
-
-  if (normalizedRate < 0.02) {
-    return "low";      // < 0.02 link/s/UAV
-  } else if (normalizedRate < 0.1) {
-    return "medium";   // 0.02-0.1 link/s/UAV
-  } else {
-    return "high";     // > 0.1 link/s/UAV
-  }
-}
-
-// 简单的种子随机数生成器
-Math.seedrandom = function(seed) {
-  let s = seed % 2147483647;
-  if (s <= 0) s += 214748363;
-  return function() {
-    s = s * 16807 % 2147483647;
-    return (s - 1) / 2147483646;
-  };
-};
-
-const SCENARIOS = [
-  {
-    id: 'mobility_stress_test',
-    label: '机动应力测试',
-    description: '测试不同机动性档位下的认证协议性能，支持调整网络规模、密度和GM3D应力档位',
-    duration: 60,
-    uavs: [
-      { 
-        id: 0, 
-        mobility: { 
-          type: 'gauss_markov_3d',
-          seed: 20260417,
-          alpha: 0.7,
-          mean_speed_mps: 5.0,
-          speed_std_mps: 5.0,
-          mean_altitude_m: 80.0,
-          altitude_std_m: 20.0,
-          area_size_x: 600.0,
-          area_size_y: 600.0,
-          min_altitude_m: 30.0,
-          max_altitude_m: 200.0,
-          initial_position: [0, 0, 80.0],
-          initial_velocity: [1.0, 2.0, 0.5],
-          position_update_interval_s: 0.1
-        },
-        auth_trigger: {
-          initial_on_connect: false,
-          time_offsets_s: [5, 20, 35, 50],
-          allow_reauth: true
-        },
-        link_state: {
-          comm_range_m: 320
-        }
-      },
-      { 
-        id: 1, 
-        mobility: { 
-          type: 'gauss_markov_3d',
-          seed: 20260418,
-          alpha: 0.7,
-          mean_speed_mps: 5.0,
-          speed_std_mps: 5.0,
-          mean_altitude_m: 80.0,
-          altitude_std_m: 20.0,
-          area_size_x: 600.0,
-          area_size_y: 600.0,
-          min_altitude_m: 30.0,
-          max_altitude_m: 200.0,
-          initial_position: [100, 50, 75.0],
-          initial_velocity: [-1.5, 1.0, -0.3],
-          position_update_interval_s: 0.1
-        },
-        auth_trigger: {
-          initial_on_connect: false,
-          time_offsets_s: [7, 22, 37, 52],
-          allow_reauth: true
-        },
-        link_state: {
-          comm_range_m: 320
-        }
-      }
-    ],
-    zsps: [
-      { id: 2, position: [0, 0, 100] }
-    ],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    supportsSwarmSize: true,
-    supportsDensity: true,
-    supportsGM3DStress: true,
-    stageTag: '机动应力实验',
-    scenarioNotes: [
-      'Gauss-Markov 3D 移动模型',
-      '支持调整网络规模：10/30/50/100 UAV',
-      '支持调整密度：1/10/50 UAV/km²',
-      '支持调整机动性档位：conservative/nominal/aggressive',
-      '用于主实验B子实验C：机动性敏感性'
-    ],
-    triggerSummary: '时间触发认证 + 自动重认证',
-    scenarioProfile: {
-      experiment_track: 'main_exp_b',
-      sub_experiment: 'mobility_sensitivity',
-      swarm_sizes: SWARM_SIZE_OPTIONS,
-      densities: DENSITY_OPTIONS.map(opt => opt.value),
-      gm3d_stress_levels: GM3D_STRESS_OPTIONS.map(opt => opt.value)
-    }
-  },
-  {
-    id: 'cross_region_flight',
-    label: '跨区域飞行',
-    description: '测试无人机从一个区域飞行到另一个区域，在不同ZSP之间切换认证的性能',
-    duration: 40,
-    uavs: [
-      {
-        id: 0,
-        mobility: {
-          type: 'transit',
-          start: [-500, 0, 100],
-          end: [500, 0, 100],
-          speed_mps: 25.0
-        },
-        auth_trigger: {
-          initial_on_connect: true,
-          allow_reauth: true,
-          on_handover: true,
-          handover_delay_s: 0.5
-        },
-        link_state: {
-          comm_range_m: 300,
-          zsp_handover: {
-            enabled: true,
-            rssi_threshold_dbm: -85,
-            hysteresis_db: 5,
-            min_dwell_time_s: 2.0,
-            handover_delay_s: 0.5,
-            reauth_after_handover: true
-          }
-        }
-      }
-    ],
-    zsps: [
-      { id: 1, position: [-250, 0, 100] },
-      { id: 2, position: [250, 0, 100] }
-    ],
-    security_profile: { adversary: 'none' },
-    defaultProtocol: 'PMAP_ACK',
-    stageTag: '跨区域实验',
-    scenarioNotes: [
-      'Transit移动模型',
-      '从左区域飞行到右区域',
-      '两个ZSP部署',
-      '支持ZSP切换认证',
-      '用于测试跨区域认证性能'
-    ],
-    triggerSummary: '连接触发认证 + 切换触发认证',
-    scenarioProfile: {
-      experiment_track: 'real_world_scenarios',
-      sub_experiment: 'cross_region_flight'
-    }
-  },
-];
+import { useTasks } from '../hooks/useTasks';
+import { copyToClipboard } from '../utils/helpers';
+import { SCENARIOS, createMobilityStressScenario, createUplinkLossTestScenario, createDownlinkLossTestScenario } from '../utils/scenarioGenerator';
+import { PROTOCOL_OPTIONS, USER_COUNT_OPTIONS, BASELINE_SCENARIO_IDS, SWARM_SIZE_OPTIONS, DENSITY_OPTIONS, GM3D_STRESS_OPTIONS, THREE_GPP_SCENARIO_OPTIONS, CARRIER_FREQUENCY_OPTIONS, LOSS_RATE_OPTIONS } from '../constants';
 
 export const SimulationManager = () => {
   const [taskName, setTaskName] = useState('');
   const [duration, setDuration] = useState(30);
-  const [loading, setLoading] = useState(false);
-  const [tasks, setTasks] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [copiedTaskId, setCopiedTaskId] = useState(null);
   const copyFeedbackTimerRef = useRef(null);
@@ -454,15 +16,27 @@ export const SimulationManager = () => {
   const [protocol, setProtocol] = useState(PROTOCOL_OPTIONS[0].value);
   const [swarmSize, setSwarmSize] = useState(SWARM_SIZE_OPTIONS[0]);
   const [density, setDensity] = useState(DENSITY_OPTIONS[0].value);
-  const [gm3dStress, setGm3dStress] = useState(GM3D_STRESS_OPTIONS[1].value);
+  const [gm3dStress, setGm3dStress] = useState('nominal');
+  const [g3ppScenario, setG3ppScenario] = useState('rma');
+  const [carrierFreq, setCarrierFreq] = useState(2.4e9);
+  const [lossRate, setLossRate] = useState(0.1);
   const [userCount, setUserCount] = useState(USER_COUNT_OPTIONS[0]);
   const [enableBlockchain, setEnableBlockchain] = useState(false);
 
+  const { tasks, loading, loadTasks, createTask, runTask, getTaskDetail } = useTasks();
+
   const baseScenario = SCENARIOS.find((s) => s.id === scenarioId) || SCENARIOS[0];
-  const activeScenario =
-    baseScenario.id === 'mobility_stress_test'
-      ? createMobilityStressScenario(swarmSize, density, gm3dStress)
-      : baseScenario;
+  let activeScenario;
+  
+  if (baseScenario.id === 'mobility_stress_test') {
+    activeScenario = createMobilityStressScenario(swarmSize, density, gm3dStress, g3ppScenario, carrierFreq);
+  } else if (baseScenario.id === 'uplink_loss_test') {
+    activeScenario = createUplinkLossTestScenario(swarmSize, lossRate, gm3dStress);
+  } else if (baseScenario.id === 'downlink_loss_test') {
+    activeScenario = createDownlinkLossTestScenario(swarmSize, lossRate, gm3dStress);
+  } else {
+    activeScenario = baseScenario;
+  }
   const effectiveProtocol = protocol;
   const isBaselineScenario = BASELINE_SCENARIO_IDS.has(activeScenario.id);
 
@@ -476,83 +50,43 @@ export const SimulationManager = () => {
     }
   }, [scenarioId, activeScenario.defaultProtocol]);
 
-  useEffect(() => {
-    loadTasks();
-  }, []);
-
   const handleCreateTask = async (e) => {
     e.preventDefault();
-    setLoading(true);
 
-    try {
-      const response = await axios.post(`${API_BASE}/simulation/create`, {
-                name: taskName || `仿真任务_${new Date().getTime()}`,
-                duration,
-                uavs: activeScenario.uavs,
-                zsps: activeScenario.zsps,
-                protocol: effectiveProtocol,
-                channel: { type: 'CSMA', datarate: '100Mbps' },
-                scenario: activeScenario.id,
-                scenario_profile: activeScenario.scenarioProfile || null,
-                security_profile: activeScenario.security_profile || {},
-                user_count: effectiveProtocol === 'RLBA_3WAY' ? userCount : 0,
-                enable_blockchain: effectiveProtocol === 'RLBA_UAV' || effectiveProtocol === 'RLBA_3WAY' ? true : enableBlockchain,
-            });
+    const result = await createTask({
+      name: taskName || `仿真任务_${new Date().getTime()}`,
+      duration,
+      uavs: activeScenario.uavs,
+      zsps: activeScenario.zsps,
+      protocol: effectiveProtocol,
+      channel: activeScenario.channel || { type: 'CSMA', datarate: '100Mbps' },
+      scenario: activeScenario.id,
+      scenario_profile: activeScenario.scenarioProfile || null,
+      security_profile: activeScenario.security_profile || {},
+      user_count: effectiveProtocol === 'RLBA_3WAY' ? userCount : 0,
+      enable_blockchain: effectiveProtocol === 'RLBA_UAV' || effectiveProtocol === 'RLBA_3WAY' ? true : enableBlockchain,
+    });
 
-      if (response.data.success) {
-        alert(`✓ 仿真任务创建成功！\n任务ID: ${response.data.task_id}`);
-        setTaskName('');
-        loadTasks();
-      }
-    } catch (error) {
-      alert(`✗ 创建失败: ${error.response?.data?.detail || error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-
-  const loadTasks = async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/simulation/list`);
-      setTasks(response.data.tasks || []);
-    } catch (error) {
-      console.error('Failed to load tasks:', error);
+    if (result.success) {
+      alert(`✓ 仿真任务创建成功！\n任务ID: ${result.taskId}`);
+      setTaskName('');
+    } else {
+      alert(`✗ 创建失败: ${result.error}`);
     }
   };
 
   const handleRunTask = async (taskId) => {
-    setLoading(true);
-    try {
-      const response = await axios.post(`${API_BASE}/simulation/run/${taskId}`);
-      if (response.data.success) {
-        alert(`✓ 仿真已启动！`);
-        loadTasks();
-      }
-    } catch (error) {
-      alert(`✗ 启动失败: ${error.response?.data?.detail || error.message}`);
-    } finally {
-      setLoading(false);
+    const result = await runTask(taskId);
+    if (result.success) {
+      alert(`✓ 仿真已启动！`);
+    } else {
+      alert(`✗ 启动失败: ${result.error}`);
     }
   };
 
   const handleCopyTaskId = async (taskId) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(taskId);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = taskId;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+    const success = await copyToClipboard(taskId);
+    if (success) {
       if (copyFeedbackTimerRef.current) {
         clearTimeout(copyFeedbackTimerRef.current);
       }
@@ -561,21 +95,15 @@ export const SimulationManager = () => {
         setCopiedTaskId((current) => (current === taskId ? null : current));
         copyFeedbackTimerRef.current = null;
       }, 2000);
-    } catch (err) {
-      console.error(err);
+    } else {
       alert('复制失败，请检查浏览器权限或手动复制任务 ID');
     }
   };
 
   const handleViewTask = async (taskId) => {
     try {
-      const configResponse = await axios.get(`${API_BASE}/simulation/config/${taskId}`);
-      const statusResponse = await axios.get(`${API_BASE}/simulation/status/${taskId}`);
-
-      setSelectedTask({
-        ...statusResponse.data,
-        config: configResponse.data.config,
-      });
+      const taskDetail = await getTaskDetail(taskId);
+      setSelectedTask(taskDetail);
     } catch (error) {
       alert(`✗ 获取任务详情失败: ${error.message}`);
     }
@@ -643,6 +171,48 @@ export const SimulationManager = () => {
                 ))}
               </select>
               <small>影响 UAV 的移动速度和稳定性，激进档位下移动更频繁。</small>
+            </div>
+          )}
+
+          {activeScenario.supports3GPPScenario && (
+            <div className="form-group">
+              <label>3GPP 场景：</label>
+              <select value={g3ppScenario} onChange={(e) => setG3ppScenario(e.target.value)}>
+                {THREE_GPP_SCENARIO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small>选择不同的3GPP信道环境，影响路径损耗计算和通信质量。</small>
+            </div>
+          )}
+
+          {activeScenario.supports3GPPScenario && (
+            <div className="form-group">
+              <label>载波频率：</label>
+              <select value={carrierFreq} onChange={(e) => setCarrierFreq(parseFloat(e.target.value))}>
+                {CARRIER_FREQUENCY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small>选择无线通信的载波频率，影响信号传播特性。</small>
+            </div>
+          )}
+
+          {activeScenario.supportsLossRate && (
+            <div className="form-group">
+              <label>丢包率：</label>
+              <select value={lossRate} onChange={(e) => setLossRate(parseFloat(e.target.value))}>
+                {LOSS_RATE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small>选择丢包率，用于测试链路质量对协议的影响。</small>
             </div>
           )}
 
@@ -761,8 +331,8 @@ export const SimulationManager = () => {
 
       <div className="section tasks-section">
         <h2>仿真任务列表</h2>
-        <button onClick={loadTasks} className="refresh-btn">
-          刷新列表
+        <button onClick={loadTasks} className="refresh-btn" disabled={loading}>
+          {loading ? '加载中...' : '刷新列表'}
         </button>
 
         {tasks.length === 0 ? (

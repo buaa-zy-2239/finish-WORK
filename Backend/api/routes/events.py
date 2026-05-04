@@ -1,4 +1,3 @@
-# Backend/api/routes/events.py
 """
 事件查询路由 - 提供D2Z认证事件数据
 """
@@ -7,17 +6,14 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
 
-# 不使用相对导入，而是在app.py中导入后传递
+from di import get_service
+
 router = APIRouter(prefix="/events", tags=["events"])
 
-# 全局变量，由app.py设置
-log_service = None
 
-
-def set_log_service(service):
-    """设置日志服务"""
-    global log_service
-    log_service = service
+async def get_log_service():
+    """获取日志服务"""
+    return get_service('log_service')
 
 
 @router.get("")
@@ -31,18 +27,9 @@ async def get_events(
 ) -> dict:
     """
     获取D2Z认证事件列表（支持分页和过滤）
-    
-    Args:
-        limit: 每页返回的事件数 (默认100，最大1000)
-        offset: 分页偏移量 (默认0)
-        uav_id: 过滤特定UAV的事件
-        zsp_id: 过滤特定ZSP的事件
-        phase: 过滤特定认证阶段的事件
-    
-    Returns:
-        dict: 包含分页信息和事件列表
     """
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = all_events
@@ -93,6 +80,7 @@ async def count_events(
 ) -> dict:
     """获取事件总数（支持过滤）"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = all_events
@@ -132,6 +120,7 @@ async def get_recent_events(
 ) -> dict:
     """获取最近的事件"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=limit, task_id=task_id)
         
         return {
@@ -157,6 +146,7 @@ async def get_events_by_phase(
 ) -> dict:
     """按认证阶段查询事件"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('phase') == phase]
@@ -191,6 +181,7 @@ async def get_events_by_uav(
 ) -> dict:
     """按UAV ID查询事件"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('uav_id') == uav_id]
@@ -225,6 +216,7 @@ async def get_events_by_zsp(
 ) -> dict:
     """按ZSP ID查询事件"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         filtered_events = [e for e in all_events if e.get('zsp_id') == zsp_id]
@@ -254,6 +246,7 @@ async def get_events_by_zsp(
 async def get_event_statistics(task_id: Optional[str] = Query(None)) -> dict:
     """获取事件统计信息"""
     try:
+        log_service = get_service('log_service')
         all_events = log_service.get_events(limit=10000, task_id=task_id)
         
         if not all_events:

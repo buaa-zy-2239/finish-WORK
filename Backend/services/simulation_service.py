@@ -1,4 +1,3 @@
-# Backend/services/simulation_service.py
 """
 仿真执行服务 - 管理仿真任务生命周期
 """
@@ -13,7 +12,7 @@ from datetime import datetime
 from typing import Dict, Optional, List
 
 from config import config
-from services.log_service import log_service
+from exceptions import TaskNotFoundError, ConfigFileNotFoundError, SimulationTimeoutError
 
 
 class SimulationService:
@@ -31,9 +30,11 @@ class SimulationService:
         """注册新任务"""
         self._tasks[task_id] = metadata
     
-    def get_task(self, task_id: str) -> Optional[dict]:
+    def get_task(self, task_id: str) -> dict:
         """获取任务元数据"""
-        return self._tasks.get(task_id)
+        if task_id not in self._tasks:
+            raise TaskNotFoundError(task_id)
+        return self._tasks[task_id]
     
     def list_tasks(self) -> List[dict]:
         """列出所有任务"""
@@ -48,9 +49,10 @@ class SimulationService:
     def get_config_file(self, task_id: str) -> str:
         """获取配置文件路径"""
         metadata = self.get_task(task_id)
-        if not metadata:
-            raise ValueError(f"Task {task_id} not found")
-        return metadata["config_file"]
+        config_file = metadata.get("config_file")
+        if not config_file or not os.path.exists(config_file):
+            raise ConfigFileNotFoundError(config_file or "unknown")
+        return config_file
     
     def run_simulation(self, task_id: str, config_file: str) -> bool:
         """
@@ -65,7 +67,6 @@ class SimulationService:
                 started_at=datetime.now().isoformat()
             )
             
-            # 调用 Python 脚本运行仿真
             uav_root = Path(__file__).resolve().parent.parent.parent
             script_path = uav_root / "Simulator" / "simulator_builder.py"
             
@@ -75,7 +76,7 @@ class SimulationService:
                 env={**os.environ, "CONFIG_FILE": config_file},
                 capture_output=True,
                 text=True,
-                timeout=600  # 10分钟超时
+                timeout=600
             )
             
             if result.returncode == 0:
@@ -86,7 +87,8 @@ class SimulationService:
                     progress=100
                 )
                 
-                # 加载日志
+                from di import get_service
+                log_service = get_service('log_service')
                 log_service.load_logs(force_reload=True)
                 
                 return True
@@ -100,8 +102,7 @@ class SimulationService:
                 return False
         
         except subprocess.TimeoutExpired:
-            self.update_task_status(task_id, "timeout")
-            return False
+            raise SimulationTimeoutError(task_id)
         except Exception as e:
             self.update_task_status(
                 task_id,
@@ -115,9 +116,6 @@ class SimulationService:
         打包仿真日志为 ZIP 文件
         """
         metadata = self.get_task(task_id)
-        if not metadata:
-            raise ValueError(f"Task {task_id} not found")
-        
         log_dir = config.get_log_dir()
         output_file = f"/tmp/{task_id}_logs.zip"
         
@@ -131,10 +129,9 @@ class SimulationService:
         """清理任务文件"""
         try:
             metadata = self.get_task(task_id)
-            if metadata:
-                task_dir = Path(metadata["task_dir"])
-                if task_dir.exists():
-                    shutil.rmtree(task_dir)
+            task_dir = Path(metadata.get("task_dir", ""))
+            if task_dir.exists():
+                shutil.rmtree(task_dir)
             
             del self._tasks[task_id]
             return True
@@ -143,5 +140,4 @@ class SimulationService:
             return False
 
 
-# 全局服务实例
 simulation_service = SimulationService()

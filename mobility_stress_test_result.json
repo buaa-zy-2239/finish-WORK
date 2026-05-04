@@ -1,8 +1,0 @@
-{
-  "success": false,
-  "error": "任务创建失败",
-  "details": {
-    "success": false,
-    "error": "404 Client Error: Not Found for url: http://localhost:8000/simulation/create"
-  }
-}

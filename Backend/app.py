@@ -1,4 +1,3 @@
-# Backend/app.py
 """
 FastAPI 主应用 - 集成所有路由
 """
@@ -9,19 +8,14 @@ import asyncio
 import sys
 import os
 
-# 添加Backend目录和项目根目录到Python路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import config
-from services.log_service import log_service
+from di import get_service
+from exceptions import SimulationError, exception_handler, general_exception_handler
 
-# 导入路由模块
 from api.routes import health, events, metrics, simulation, analysis
-
-# 设置日志服务到路由模块
-events.set_log_service(log_service)
-metrics.set_log_service(log_service)
 
 
 def create_app():
@@ -34,7 +28,6 @@ def create_app():
         debug=config.DEBUG,
     )
 
-    # CORS 中间件
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,
@@ -43,9 +36,8 @@ def create_app():
         allow_headers=["*"],
     )
 
-    # ============================================================
-    # 路由注册
-    # ============================================================
+    app.add_exception_handler(SimulationError, exception_handler)
+    app.add_exception_handler(Exception, general_exception_handler)
 
     app.include_router(health.router)
     app.include_router(events.router, prefix=config.API_V1_PREFIX)
@@ -53,35 +45,26 @@ def create_app():
     app.include_router(simulation.router, prefix=config.API_V1_PREFIX)
     app.include_router(analysis.router, prefix=config.API_V1_PREFIX)
 
-    # ============================================================
-    # 启动和关闭事件
-    # ============================================================
-
     @app.on_event("startup")
     async def startup_event():
         """应用启动"""
         print(f"[STARTUP] {config.APP_NAME} v{config.APP_VERSION}")
         
-        # 初始加载日志
+        log_service = get_service('log_service')
         log_service.load_logs(force_reload=True)
         print("[STARTUP] Logs loaded successfully")
-
 
     @app.on_event("shutdown")
     async def shutdown_event():
         """应用关闭"""
         print("[SHUTDOWN] Shutting down...")
 
-
-    # ============================================================
-    # WebSocket - 实时数据推送
-    # ============================================================
-
     @app.websocket("/ws/d2z-events")
     async def websocket_d2z_events(websocket):
         """WebSocket: D2Z事件实时推送"""
         await websocket.accept()
         
+        log_service = get_service('log_service')
         last_event_count = len(log_service.events)
         
         try:
@@ -105,7 +88,6 @@ def create_app():
         finally:
             await websocket.close()
 
-
     @app.websocket("/ws/d2z-metrics")
     async def websocket_d2z_metrics(websocket):
         """WebSocket: D2Z指标实时推送"""
@@ -115,6 +97,7 @@ def create_app():
             while True:
                 await asyncio.sleep(2)
                 
+                log_service = get_service('log_service')
                 log_service.load_logs()
                 metrics_data = log_service.get_metrics()
                 
@@ -127,11 +110,6 @@ def create_app():
             print(f"[WS] Connection error: {e}")
         finally:
             await websocket.close()
-
-
-    # ============================================================
-    # 根路由
-    # ============================================================
 
     @app.get("/")
     async def root():
@@ -164,7 +142,6 @@ def create_app():
     return app
 
 
-# 创建应用实例
 app = create_app()
 
 
