@@ -135,3 +135,6 @@ yarn-debug.log*
 yarn-error.log*
 package-lock.json
 yarn.lock
+mobility_stress_results/
+analysis_plots/
+blockchain_experiment_results/

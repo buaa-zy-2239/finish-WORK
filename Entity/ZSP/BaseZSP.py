@@ -77,10 +77,14 @@ class BaseZSP(ns.Application, SafeExecutor):
     def GetAddress(self):
         try:
             ipv4 = self.node.GetObject[ns.Ipv4]()
+            if not ipv4:
+                return ns.Ipv4Address("10.1.1.1")
             addr = ipv4.GetAddress(1, 0)
+            if not addr:
+                return ns.Ipv4Address("10.1.1.1")
             return addr.GetLocal()
         except Exception:
-            return ns.Ipv4Address("0.0.0.0")
+            return ns.Ipv4Address("10.1.1.1")
 
     def StartApplication(self):
         def logic():
